@@ -210,15 +210,16 @@ private fun TodayTab(vm: AppViewModel, view: String, onView: (String) -> Unit) {
             item {
                 GroundView(d, keys, vm.todaySel, { vm.todaySel = it }, "ยังไม่มีไดโนเสาร์วันนี้ เรียนให้จบรอบเพื่อรับตัวแรก")
             }
-            if (list.isNotEmpty()) item { DinoBreakdown(d, list) }
+            // by dinosaur: ground + the list of today's rounds
+            item { SubTitle("รอบที่เรียนวันนี้") }
+            if (list.isEmpty()) item { MutedBox("ยังไม่มีรอบวันนี้ กด Start Focus เพื่อเริ่มเรียน") }
+            else list.reversed().forEach { e -> item { SessionRow(d, e) } }
         } else {
+            // by tag: only the minutes per tag
             item {
                 if (list.none { it.workSec > 0 }) MutedBox("ยังไม่มีเวลาที่บันทึกวันนี้") else TagBreakdown(d, list)
             }
         }
-        item { SubTitle("รอบที่เรียนวันนี้") }
-        if (list.isEmpty()) item { MutedBox("ยังไม่มีรอบวันนี้ กด Start Focus เพื่อเริ่มเรียน") }
-        else list.reversed().forEach { e -> item { SessionRow(d, e) } }
         item { Box(Modifier.height(8.dp)) }
     }
 }
