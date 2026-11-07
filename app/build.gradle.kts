@@ -13,6 +13,12 @@ val commitCount: Int = try {
     1
 }
 
+// Release signing: one password (DINOFOCUS_PASSWORD) for both the .jks store and the key.
+// The .jks is never committed; CI decodes it from a secret, locally put dinofocus-release.jks in the project root.
+val releasePassword: String? = System.getenv("DINOFOCUS_PASSWORD")
+val releaseStore = rootProject.file(System.getenv("DINOFOCUS_KEYSTORE") ?: "dinofocus-release.jks")
+val hasReleaseKey = !releasePassword.isNullOrEmpty() && releaseStore.exists()
+
 android {
     namespace = "com.titipong.dinofocus"
     compileSdk = 34
@@ -33,11 +39,20 @@ android {
             keyAlias = "dinofocus"
             keyPassword = "dinofocus"
         }
+        create("release") {
+            if (hasReleaseKey) {
+                storeFile = releaseStore
+                storePassword = releasePassword
+                keyAlias = "dinofocus"
+                keyPassword = releasePassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
     compileOptions {

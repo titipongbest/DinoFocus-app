@@ -14,6 +14,13 @@ GitHub Actions สร้าง APK ทุกครั้งที่ push ไป
 
 ในเครื่อง: เปิดโฟลเดอร์นี้ด้วย Android Studio หรือรัน `./gradlew assembleDebug` (JDK 17)
 
+### Release signing
+ใส่ 2 ค่าใน GitHub → Settings → Secrets and variables → Actions:
+- `DINOFOCUS_KEYSTORE_BASE64` — ไฟล์ `dinofocus-release.jks` แปลงเป็น base64
+- `DINOFOCUS_PASSWORD` — รหัสผ่านเดียว ใช้ทั้ง keystore และ key (alias `dinofocus`)
+
+ถ้ายังไม่ตั้ง secrets CI จะเซ็นด้วยคีย์ debug แทน ห้าม commit ไฟล์ .jks ลง repo
+
 เลขเวอร์ชันเพิ่มอัตโนมัติตามจำนวน commit (v1.N) และทุก build เซ็นด้วยคีย์เดียวกัน (`app/dinofocus.keystore`) ติดตั้งเวอร์ชันใหม่ทับของเดิมได้โดยข้อมูลไม่หาย
 
 by NorthXbar
