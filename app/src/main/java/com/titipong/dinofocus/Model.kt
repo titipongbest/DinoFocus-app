@@ -131,10 +131,42 @@ data class Backup(
         val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
         fun parse(text: String): AppData? {
+            parseExact(text)?.let { return it }
+            // some cloud folders do not truncate on overwrite, leaving old bytes after the JSON:
+            // retry with the text cut after each closing brace, last one first
+            var end = text.lastIndexOf('}')
+            var tries = 0
+            while (end > 0 && tries < 50) {
+                parseExact(text.substring(0, end + 1))?.let { return it }
+                end = text.lastIndexOf('}', end - 1)
+                tries++
+            }
+            return null
+        }
+
+        private fun parseExact(text: String): AppData? {
             runCatching { json.decodeFromString(serializer(), text) }.getOrNull()
                 ?.takeIf { it.app == "DinoFocus" }?.let { return it.data }
             return runCatching { json.decodeFromString(AppData.serializer(), text) }.getOrNull()
                 ?.takeIf { text.contains("\"collection\"") }
         }
     }
+}
+
+/** Every round needs an id so syncing never counts it twice; older rounds get a stable one from their content. */
+fun AppData.withEntryIds(): AppData =
+    copy(collection = collection.map { if (it.id.isBlank()) it.copy(id = "${it.ts}-${it.sp}-${it.workSec}") else it })
+
+/**
+ * Sync merge: union of rounds by id (this device's copy wins on a tie), tags merged by name,
+ * daily totals rebuilt from the rounds. This device keeps its own settings and running round.
+ */
+fun mergeData(local: AppData, remote: AppData?): AppData {
+    val l = local.withEntryIds()
+    if (remote == null) return l.recomputed()
+    val r = remote.withEntryIds()
+    val all = LinkedHashMap<String, Entry>()
+    (l.collection + r.collection).forEach { all.putIfAbsent(it.id, it) }
+    val tags = l.tags + r.tags.filter { t -> l.tags.none { it.name.equals(t.name, ignoreCase = true) } }
+    return l.copy(collection = all.values.sortedBy { it.ts }, tags = tags).recomputed()
 }

@@ -35,6 +35,9 @@ jobs:
             echo "::warning::DINOFOCUS_KEYSTORE_BASE64 secret not set - APK is signed with the debug key"
           fi
 
+      - name: Sync tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Build release APK
         env:
           DINOFOCUS_PASSWORD: ${{ secrets.DINOFOCUS_PASSWORD }}
