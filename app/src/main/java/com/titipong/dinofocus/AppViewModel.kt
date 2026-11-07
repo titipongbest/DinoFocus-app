@@ -2,6 +2,7 @@ package com.titipong.dinofocus
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -71,13 +72,55 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.getString("data", null)?.let { json.decodeFromString(AppData.serializer(), it) } ?: AppData()
     } catch (e: Exception) {
         AppData()
-    }.let { d ->
+    }.let { normalize(it) }
+
+    private fun normalize(d: AppData): AppData {
         var x = d
         if (x.mode != MODE_WORK && x.mode != MODE_SHORT) x = x.copy(mode = MODE_WORK, session = Session())
         if (!Dinos.exists(x.pet)) x = x.copy(pet = "rex")
         if (x.tag != null && x.tags.none { it.name == x.tag }) x = x.copy(tag = null)
         val wr = SliderCfg.range(MODE_WORK); val sr = SliderCfg.range(MODE_SHORT)
-        x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr))
+        x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) })
+        return x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr))
+    }
+
+    // ── backup: export to / import from a file in a folder the user picks ──
+    /** Data waiting for the user to confirm an import (replaces everything). */
+    var pendingImport by mutableStateOf<AppData?>(null)
+        private set
+
+    fun exportTo(uri: Uri) {
+        val out = Backup(exportedAt = System.currentTimeMillis(), data = data.copy(session = Session(), mode = MODE_WORK))
+        try {
+            getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.use {
+                it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
+            } ?: throw IllegalStateException()
+            showToast("ส่งออกแล้ว · ${data.collection.size} รอบ")
+        } catch (e: Exception) {
+            showToast("ส่งออกไม่สำเร็จ ลองเลือกโฟลเดอร์อื่น")
+        }
+    }
+
+    fun readImport(uri: Uri) {
+        val parsed = try {
+            val text = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                ?: throw IllegalStateException()
+            Backup.parse(text)
+        } catch (e: Exception) {
+            null
+        }
+        if (parsed == null) showToast("ไฟล์นี้ไม่ใช่ข้อมูล DinoFocus") else pendingImport = normalize(parsed)
+    }
+
+    fun cancelImport() { pendingImport = null }
+
+    fun confirmImport() {
+        val d = pendingImport ?: return
+        pendingImport = null
+        Notifier.cancelSuccess(getApplication())
+        update { d.copy(session = Session(), mode = MODE_WORK) }
+        todaySel = -1
+        showToast("นำเข้าแล้ว · ${d.collection.size} รอบ")
     }
 
     private fun update(f: (AppData) -> AppData) {

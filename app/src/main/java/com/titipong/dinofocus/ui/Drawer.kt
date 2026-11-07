@@ -1,6 +1,8 @@
 package com.titipong.dinofocus.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -113,7 +115,7 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    listOf("today" to "วันนี้", "history" to "ย้อนหลัง").forEach { (id, label) ->
+                    listOf("today" to "วันนี้", "history" to "ย้อนหลัง", "backup" to "สำรอง").forEach { (id, label) ->
                         val active = tab == id
                         Box(
                             Modifier
@@ -126,7 +128,11 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                         ) { Text(label, color = if (active) Color.White else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
                     }
                 }
-                if (tab == "today") TodayTab(vm) else HistoryTab(vm)
+                when (tab) {
+                    "today" -> TodayTab(vm)
+                    "history" -> HistoryTab(vm)
+                    else -> BackupTab(vm)
+                }
             }
         }
     }
@@ -397,3 +403,79 @@ private fun WeekChart(
     }
 }
 
+
+@Composable
+private fun BackupTab(vm: AppViewModel) {
+    val p = LocalPal.current
+    val d = vm.data
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) vm.exportTo(uri)
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.readImport(uri)
+    }
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
+        item { SubTitle("ข้อมูลในเครื่องนี้") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatChip("${d.collection.count { !it.dead }}", "ไดโนเสาร์", Modifier.weight(1f))
+                StatChip("${d.collection.count { it.dead }}", "หลุมศพ", Modifier.weight(1f))
+                StatChip("${d.dailyWorkSec.values.sum() / 60}", "นาทีทั้งหมด", Modifier.weight(1f))
+            }
+        }
+        item { SubTitle("ส่งออกข้อมูล") }
+        item {
+            Text(
+                "บันทึกไดโนเสาร์ ประวัติเวลา tag และการตั้งค่าทั้งหมดเป็นไฟล์ .json เลือกโฟลเดอร์ปลายทางได้ เช่น Download หรือ Google Drive",
+                color = p.muted, fontSize = 12.sp,
+            )
+        }
+        item {
+            BigButton("ส่งออกไปยังโฟลเดอร์…", BtnStyle.Primary, Modifier.fillMaxWidth(), small = true) {
+                exportLauncher.launch("DinoFocus-backup-${java.time.LocalDate.now()}.json")
+            }
+        }
+        item { SubTitle("นำเข้าข้อมูล") }
+        item {
+            Text(
+                "เลือกไฟล์สำรองของ DinoFocus ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด" +
+                    if (vm.inSession) " · จบรอบที่กำลังโฟกัสก่อนจึงจะนำเข้าได้" else "",
+                color = p.muted, fontSize = 12.sp,
+            )
+        }
+        item {
+            BigButton("เลือกไฟล์สำรอง…", BtnStyle.Cancel, Modifier.fillMaxWidth().alpha(if (vm.inSession) 0.45f else 1f), small = true) {
+                if (vm.inSession) vm.showToast("จบรอบที่กำลังโฟกัสก่อนจึงจะนำเข้าได้")
+                else importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"))
+            }
+        }
+        item { Box(Modifier.height(8.dp)) }
+    }
+
+    vm.pendingImport?.let { incoming ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { vm.cancelImport() }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(p.surface)
+                    .border(2.dp, p.accent, RoundedCornerShape(20.dp))
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("นำเข้าข้อมูล?", fontFamily = PixelFont, fontSize = 12.sp, color = p.accentGlow)
+                Text(
+                    "ไฟล์นี้มีไดโนเสาร์ ${incoming.collection.count { !it.dead }} ตัว หลุมศพ ${incoming.collection.count { it.dead }} " +
+                        "และเวลาเรียน ${incoming.dailyWorkSec.values.sum() / 60} นาที\n\n" +
+                        "ข้อมูลปัจจุบันในเครื่อง (${d.collection.size} รอบ) จะถูกแทนที่ทั้งหมด ควรส่งออกเก็บไว้ก่อน",
+                    color = p.fg, fontSize = 13.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BigButton("ยกเลิก", BtnStyle.Cancel, Modifier.weight(1f), small = true) { vm.cancelImport() }
+                    BigButton("นำเข้า", BtnStyle.Confirm, Modifier.weight(1f), small = true) { vm.confirmImport() }
+                }
+            }
+        }
+    }
+}

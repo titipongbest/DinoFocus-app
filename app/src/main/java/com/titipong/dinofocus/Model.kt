@@ -95,3 +95,23 @@ fun fmtClock(totalSecIn: Long): String {
     val s = totalSec % 60
     return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
 }
+
+/** Backup file: the whole AppData plus a small header. Plain AppData JSON is accepted on import too. */
+@Serializable
+data class Backup(
+    val app: String = "DinoFocus",
+    val version: Int = 1,
+    val exportedAt: Long = 0,
+    val data: AppData,
+) {
+    companion object {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
+
+        fun parse(text: String): AppData? {
+            runCatching { json.decodeFromString(serializer(), text) }.getOrNull()
+                ?.takeIf { it.app == "DinoFocus" }?.let { return it.data }
+            return runCatching { json.decodeFromString(AppData.serializer(), text) }.getOrNull()
+                ?.takeIf { text.contains("\"collection\"") }
+        }
+    }
+}
