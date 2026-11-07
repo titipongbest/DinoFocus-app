@@ -25,6 +25,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -86,19 +88,19 @@ fun MainScreen(vm: AppViewModel) {
     var tagDialog by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(p.bg)) {
+        // one screen, no scrolling: the timer card takes whatever height is left and scales to it
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 24.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Header(onMenu = { drawerOpen = true })
             ModeTabs(vm)
-            TimerCard(vm, onPet = { petPicker = true }, onTag = { tagDialog = true })
+            TimerCard(vm, onPet = { petPicker = true }, onTag = { tagDialog = true }, modifier = Modifier.weight(1f))
             CreditLine()
         }
 
@@ -173,7 +175,7 @@ private fun ModeTabs(vm: AppViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
+private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit, modifier: Modifier = Modifier) {
     val p = LocalPal.current
     val d = vm.data
     val work = d.mode == MODE_WORK
@@ -186,17 +188,26 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     val glow = if (over) p.yellow.copy(alpha = 0.18f) else p.accent.copy(alpha = 0.12f)
 
-    Column(
-        Modifier
+    BoxWithConstraints(
+        modifier
             .fillMaxWidth()
             .widthIn(max = 480.dp)
             .clip(shape)
             .background(p.surface)
             .background(Brush.verticalGradient(listOf(glow, Color.Transparent), endY = 700f))
             .border(1.dp, if (over) lerpColor(p.border, p.yellow, 0.5f) else p.border, shape)
-            .padding(start = 24.dp, end = 24.dp, top = 32.dp, bottom = 24.dp),
+    ) {
+    // scale pet, ring and text to the card height (1 = roomy phone, smaller on short screens)
+    val s = ((maxHeight / 640.dp) * 1.08f).coerceIn(0.55f, 1f)
+    val cardH = maxHeight
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .heightIn(min = cardH)
+            .padding(horizontal = 20.dp, vertical = (14 * s).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.SpaceEvenly,
     ) {
         if (work) {
             // pet: tap to choose the species (locked during a round)
@@ -208,7 +219,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                SpriteImage(d.pet, 104.dp, Modifier.offset(y = bob))
+                SpriteImage(d.pet, (104 * s).dp, Modifier.offset(y = bob))
                 Row {
                     Text(Dinos.get(d.pet).name, color = p.fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     if (!inSession) Text(" · แตะเพื่อเลือก", color = p.muted, fontSize = 12.sp)
@@ -223,7 +234,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
             }
         }
 
-        Ring(vm, el, tgt, over, started)
+        Ring(vm, el, tgt, over, started, s)
 
         if (over) Text(if (vm.atCap) "ครบ 90 นาทีแล้ว · กดเสร็จสิ้นเพื่อบันทึก" else "ไดโนเสาร์ใหม่สำเร็จ · นับเวลาต่อได้ถึง 90 นาที", color = p.yellow, fontSize = 12.sp, textAlign = TextAlign.Center)
 
@@ -271,6 +282,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
             }
             val ctx = LocalContext.current
             val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { askBatteryOnce(ctx) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             BigButton(label, style, Modifier.widthIn(min = 220.dp)) {
                 if (over) { vm.finishSuccess(goBreak = false); return@BigButton }
                 if (!started) {
@@ -281,7 +293,9 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
                 }
                 vm.onFocusButton()
             }
-            Text(hint, color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.offset(y = (-10).dp))
+            // hint keeps its line so the layout does not jump when it appears
+            Text(hint, color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center, minLines = 1, maxLines = 2)
+            }
         } else {
             if (!started) {
                 BigButton("☕ เริ่มพัก", BtnStyle.Break, Modifier.widthIn(min = 220.dp)) { vm.breakStart() }
@@ -293,10 +307,11 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
             }
         }
     }
+    }
 }
 
 @Composable
-private fun Ring(vm: AppViewModel, el: Long, tgt: Long, over: Boolean, started: Boolean) {
+private fun Ring(vm: AppViewModel, el: Long, tgt: Long, over: Boolean, started: Boolean, s: Float = 1f) {
     val p = LocalPal.current
     val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
         initialValue = 1f, targetValue = 0.55f,
@@ -311,8 +326,8 @@ private fun Ring(vm: AppViewModel, el: Long, tgt: Long, over: Boolean, started: 
     }
     val text = if (over) "+" + fmtClock((el - tgt) / 1000) else fmtClock(ceil((tgt - el) / 1000.0).toLong())
     val sub = if (over) "รวม " + fmtClock(el / 1000) else ""
-    Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(200.dp)) {
+    Box(Modifier.size((200 * s).dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size((200 * s).dp)) {
             val sw = 8.dp.toPx()
             val r = size.width * 88f / 200f
             val tl = Offset(center.x - r, center.y - r)
@@ -330,7 +345,7 @@ private fun Ring(vm: AppViewModel, el: Long, tgt: Long, over: Boolean, started: 
             Text(
                 text,
                 color = if (over) p.yellow else p.fg,
-                fontSize = when { text.length >= 7 -> 34.sp; text.length == 6 -> 42.sp; else -> 52.sp },
+                fontSize = (s * when { text.length >= 7 -> 34; text.length == 6 -> 42; else -> 52 }).sp,
                 fontWeight = FontWeight.Bold, letterSpacing = (-1).sp,
             )
             Text(sub, color = p.muted, fontSize = 10.sp)
