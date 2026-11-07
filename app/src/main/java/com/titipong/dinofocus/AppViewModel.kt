@@ -87,7 +87,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // every round needs an id so syncing never counts it twice (old rounds get a stable one)
         x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) }
             .map { if (it.id.isBlank()) it.copy(id = "${it.ts}-${it.sp}-${it.workSec}") else it })
-        return x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr))
+        // rebuild daily minutes/rounds from the rounds themselves (also counts older given-up rounds)
+        return x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr)).recomputed()
     }
 
     // ── sync: every device merges its rounds into one shared file in a folder they all use ──
@@ -333,11 +334,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 collection = d.collection + entry,
                 dailyWorkSec = d.dailyWorkSec + (today to (d.dailyWorkSec[today] ?: 0) + r.workSec),
             )
+            // every round counts, a given-up one (grave) too; only the streak needs a living dino
+            n = n.copy(
+                totalPomos = d.totalPomos + 1,
+                dailyPomos = d.dailyPomos + (today to (d.dailyPomos[today] ?: 0) + 1),
+            )
             if (!r.dead) {
-                n = n.copy(
-                    totalPomos = d.totalPomos + 1,
-                    dailyPomos = d.dailyPomos + (today to (d.dailyPomos[today] ?: 0) + 1),
-                )
                 if (d.lastDay != today) {
                     val y = LocalDate.parse(today).minusDays(1).toString()
                     n = n.copy(streak = if (d.lastDay == y) d.streak + 1 else 1, lastDay = today)

@@ -318,7 +318,7 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
         item {
             WeekChart(
                 days, vals, today, barColor,
-                rounds = { k -> if (histTag == null) d.roundsOn(k) else indicesOn(k).count { !d.collection[it].dead } },
+                rounds = { k -> if (histTag == null) d.roundsOn(k) else indicesOn(k).size },
                 sel = chartSel,
                 onSel = { chartSel = it },
                 canOpen = { k -> k in dayKeys },

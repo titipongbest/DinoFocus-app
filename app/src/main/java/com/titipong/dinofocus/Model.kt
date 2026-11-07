@@ -71,20 +71,22 @@ data class AppData(
     fun recomputed(): AppData {
         val ws = HashMap<String, Int>()
         val rounds = HashMap<String, Int>()
+        val aliveDays = HashSet<String>()
         collection.forEach { e ->
             ws[e.day] = (ws[e.day] ?: 0) + e.workSec
-            if (!e.dead) rounds[e.day] = (rounds[e.day] ?: 0) + 1
+            rounds[e.day] = (rounds[e.day] ?: 0) + 1
+            if (!e.dead) aliveDays.add(e.day)
         }
-        val last = rounds.keys.maxOrNull()
+        val last = aliveDays.maxOrNull()
         var streak = 0
         if (last != null) {
             var d = LocalDate.parse(last)
-            while (rounds.containsKey(d.toString())) { streak++; d = d.minusDays(1) }
+            while (aliveDays.contains(d.toString())) { streak++; d = d.minusDays(1) }
         }
-        return copy(dailyWorkSec = ws, dailyPomos = rounds, totalPomos = collection.count { !it.dead }, lastDay = last, streak = streak)
+        return copy(dailyWorkSec = ws, dailyPomos = rounds, totalPomos = collection.size, lastDay = last, streak = streak)
     }
     fun roundsOn(day: String) = (dailyPomos[day] ?: 0).takeIf { it > 0 }
-        ?: collection.count { it.day == day && !it.dead }
+        ?: collection.count { it.day == day }
 }
 
 object SliderCfg {
