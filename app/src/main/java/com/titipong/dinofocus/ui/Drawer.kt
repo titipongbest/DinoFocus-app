@@ -240,7 +240,8 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val d = vm.data
     val today = todayKey()
     var tagFilter by remember { mutableStateOf<String?>(null) }
-    val byTag = view == VIEW_TAG
+    // history is always by tag (filter chips); opening a day shows its ground
+    val byTag = true
     // the tag filter only applies while looking "by tag"
     val histTag = if (byTag) tagFilter else null
     var weekOffset by remember { mutableIntStateOf(0) }
@@ -272,12 +273,11 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
     // items before the day list: switch, [tag chips], week nav, chart, breakdown, [all-time title + totals], "ทุกวัน"
-    // items before the day list: switch, [tag chips, all-time line], week nav, chart, [dino count], "รายวัน"
-    val dayListOffset = if (byTag) 6 else 5
+    // items before the day list: tag chips, all-time line, week nav, chart, "รายวัน"
+    val dayListOffset = 5
     var chartSel by remember(weekOffset) { mutableStateOf<Int?>(null) }
 
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
-        item { ViewSwitch(view, onView) }
         if (byTag) item {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 TagChip("ทั้งหมด", p.accentGlow, selected = tagFilter == null, small = true) { tagFilter = null }
@@ -412,8 +412,8 @@ private fun dayItems(
             }
             if (open) {
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!byTag) GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
-                    else if (histTag == null) TagBreakdown(d, list, inner = true)
+                    GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
+                    if (histTag == null) TagBreakdown(d, list, inner = true)
                     if (!byTag) list.forEach { SessionRow(d, it, inner = true) }
                 }
             }
