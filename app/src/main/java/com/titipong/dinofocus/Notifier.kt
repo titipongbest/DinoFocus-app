@@ -65,6 +65,13 @@ object Notifier {
         "$dinoName ฟักแล้ว · ครบ $minutes นาที\nนับเวลาต่อได้ถึง 90 นาที กดเสร็จสิ้นเพื่อบันทึก",
     )
 
+    private var large: android.graphics.Bitmap? = null
+
+    /** The colored app logo shown inside notifications. */
+    fun largeIcon(ctx: Context): android.graphics.Bitmap? = large
+        ?: runCatching { android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.ic_notif_large) }.getOrNull()
+            ?.also { large = it }
+
     /** Creates the alert channel (sound + vibration) and returns its id. */
     fun alertChannel(ctx: Context): String {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -93,6 +100,7 @@ object Notifier {
         )
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_dino)
+            .setLargeIcon(largeIcon(ctx))
             .setContentTitle(title)
             .setContentText(text.replace("\n", " "))
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

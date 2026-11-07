@@ -141,6 +141,7 @@ class TimerService : Service() {
 
         val b = NotificationCompat.Builder(this, if (overtime) Notifier.alertChannel(this) else CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_dino)
+            .setLargeIcon(Notifier.largeIcon(this))
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(!alertNow)
