@@ -174,4 +174,31 @@ class SyncTest {
         b = sync(b); a = sync(a)
         assertNull(a.tag)
     }
+
+    /** Per-phone files: each phone writes only its own file and merges everyone's. */
+    private val files = HashMap<String, String>()
+    private fun syncAs(phone: String, local: AppData, staleFrom: Map<String, String>? = null): AppData {
+        val view = staleFrom ?: files
+        var remote: AppData? = null
+        view.values.forEach { t -> Backup.parse(t)?.let { d -> remote = remote?.let { mergeData(it, d) } ?: d } }
+        val merged = mergeData(local, remote)
+        files[phone] = Backup.json.encodeToString(Backup.serializer(), Backup(device = phone, data = merged))
+        return merged
+    }
+
+    @Test fun slowCloudNeverLosesTheOtherPhonesTag() {
+        var tab = device(round("t1", at(today, 9), 15)).copy(tags = listOf(Tag("อ่านหนังสือ", 1), Tag("ทั่วไป", 2, 100)))
+        var phone = device(round("p1", at(today, 10), 20)).copy(tags = listOf(Tag("อ่านหนังสือ", 1)))
+        val before = HashMap(files)            // what the phone's cloud still shows
+        tab = syncAs("tab", tab)
+        phone = syncAs("phone", phone, staleFrom = before)   // phone does not see the tablet's file yet
+        assertTrue(phone.tags.none { it.name == "ทั่วไป" })
+        assertTrue("tablet file is untouched", Backup.parse(files["tab"]!!)!!.tags.any { it.name == "ทั่วไป" })
+        phone = syncAs("phone", phone)         // cloud caught up
+        tab = syncAs("tab", tab)
+        assertTrue(phone.tags.any { it.name == "ทั่วไป" })
+        assertEquals(35, phone.minutesOn(today.toString()))
+        assertEquals(35, tab.minutesOn(today.toString()))
+        assertEquals(phone.tags.map { it.name }.toSet(), tab.tags.map { it.name }.toSet())
+    }
 }

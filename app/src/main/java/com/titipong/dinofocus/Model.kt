@@ -127,30 +127,35 @@ data class Backup(
     val app: String = "DinoFocus",
     val version: Int = 1,
     val exportedAt: Long = 0,
+    /** Phone that wrote the file (shown in the sync tab). */
+    val device: String = "",
     val data: AppData,
 ) {
     companion object {
         val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = true }
 
-        fun parse(text: String): AppData? {
-            parseExact(text)?.let { return it }
+        fun parse(text: String): AppData? = parseBackup(text)?.data
+
+        /** Backup with its header; a plain AppData file comes back with an empty header. */
+        fun parseBackup(text: String): Backup? {
+            parseExactBackup(text)?.let { return it }
             // some cloud folders do not truncate on overwrite, leaving old bytes after the JSON:
             // retry with the text cut after each closing brace, last one first
             var end = text.lastIndexOf('}')
             var tries = 0
             while (end > 0 && tries < 50) {
-                parseExact(text.substring(0, end + 1))?.let { return it }
+                parseExactBackup(text.substring(0, end + 1))?.let { return it }
                 end = text.lastIndexOf('}', end - 1)
                 tries++
             }
             return null
         }
 
-        private fun parseExact(text: String): AppData? {
+        private fun parseExactBackup(text: String): Backup? {
             runCatching { json.decodeFromString(serializer(), text) }.getOrNull()
-                ?.takeIf { it.app == "DinoFocus" }?.let { return it.data }
+                ?.takeIf { it.app == "DinoFocus" }?.let { return it }
             return runCatching { json.decodeFromString(AppData.serializer(), text) }.getOrNull()
-                ?.takeIf { text.contains("\"collection\"") }
+                ?.takeIf { text.contains("\"collection\"") }?.let { Backup(data = it) }
         }
     }
 }
