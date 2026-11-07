@@ -100,7 +100,7 @@ fun Dot(color: Color, size: Dp = 8.dp) {
 
 /** Minutes per tag for a list of rounds, biggest first (same as the web tagBreakdown). */
 @Composable
-fun TagBreakdown(data: AppData, list: List<Entry>, inner: Boolean = false) {
+fun TagBreakdown(data: AppData, list: List<Entry>, inner: Boolean = false, longFormat: Boolean = false) {
     val p = LocalPal.current
     val sums = LinkedHashMap<String, Int>()
     list.forEach { if (it.workSec > 0) { val k = it.tag ?: NO_TAG; sums[k] = (sums[k] ?: 0) + it.workSec } }
@@ -123,7 +123,10 @@ fun TagBreakdown(data: AppData, list: List<Entry>, inner: Boolean = false) {
                     Dot(c)
                     Spacer(Modifier.width(6.dp))
                     Text(name, color = p.fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text("${sec / 60} นาที", color = p.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (longFormat) fmtDuration(sec) else "${sec / 60} นาที",
+                        color = p.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(if (inner) p.surface else p.surface2)) {
                     Box(Modifier.fillMaxWidth(sec / max).height(6.dp).clip(RoundedCornerShape(3.dp)).background(c))
@@ -251,4 +254,10 @@ fun DinoBreakdown(data: AppData, list: List<Entry>) {
             }
         }
     }
+}
+
+/** 754 min → "12 ชม. 34 นาที"; under an hour → "34 นาที". */
+fun fmtDuration(sec: Int): String {
+    val m = sec / 60
+    return if (m >= 60) "${m / 60} ชม. ${m % 60} นาที" else "$m นาที"
 }

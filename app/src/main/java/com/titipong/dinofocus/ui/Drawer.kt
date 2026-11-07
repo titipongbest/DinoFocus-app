@@ -263,8 +263,8 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val vals = days.map { minutes(it.toString()) }
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
-    // items before the day list: switch, [tag chips], week nav, chart, breakdown, "ทุกวัน"
-    val dayListOffset = if (byTag) 6 else 5
+    // items before the day list: switch, [tag chips], week nav, chart, breakdown, [all-time title + totals], "ทุกวัน"
+    val dayListOffset = if (byTag) 8 else 5
 
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item { ViewSwitch(view, onView) }
@@ -299,6 +299,14 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
         item {
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
             if (!byTag) DinoBreakdown(d, inRange) else if (histTag == null) TagBreakdown(d, inRange)
+        }
+        if (byTag) {
+            item { SubTitle("รวมตลอดกาล" + (histTag?.let { " · $it" } ?: "")) }
+            item {
+                val all = d.collection.filter { match(it) }
+                if (all.none { it.workSec > 0 }) MutedBox("ยังไม่มีเวลาที่บันทึก")
+                else TagBreakdown(d, all, longFormat = true)
+            }
         }
         item { SubTitle("ทุกวัน") }
         if (dayKeys.isEmpty()) {
