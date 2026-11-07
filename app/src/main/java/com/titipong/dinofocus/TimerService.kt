@@ -74,13 +74,23 @@ class TimerService : Service() {
         listOf(target, startAt + MAX_FOCUS_MS).filter { it > now }.forEach { at ->
             handler.postDelayed({ refresh() }, at - now + 500)
         }
+        // already past the target (e.g. app reopened): keep the "+mm:ss" ticking
+        if (data.mode == MODE_WORK && now >= target && now < startAt + MAX_FOCUS_MS) handler.post { refresh() }
         return START_STICKY
     }
 
     private fun refresh() {
         val data = Store.load(this)
-        if (data.session.runStart == null) { stopSelf(); return }
+        val s = data.session
+        val runStart = s.runStart ?: run { stopSelf(); return }
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, build(data))
+        // after the target the "+mm:ss" text is ours to update, once per second, until the 90-minute cap
+        val startAt = runStart - s.accumulated
+        val target = startAt + data.workMin * 60_000L
+        val now = System.currentTimeMillis()
+        if (data.mode == MODE_WORK && now >= target && now < startAt + MAX_FOCUS_MS) {
+            handler.postDelayed({ refresh() }, 1000 - (now - target) % 1000 + 5)
+        }
     }
 
     override fun onDestroy() {
@@ -123,11 +133,11 @@ class TimerService : Service() {
                 now < target -> b.setContentTitle("🦖 โฟกัสอยู่ · $pet")
                     .setContentText("อดทนไว้! ไดโนเสาร์จะฟักเวลา ${hhmm(target)}$tag")
                     .setUsesChronometer(true).setChronometerCountDown(true).setWhen(target).setShowWhen(true)
-                now < startAt + MAX_FOCUS_MS -> b.setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖 นับเวลาต่อ")
-                    .setContentText("แตะเพื่อเสร็จสิ้นและบันทึก · นับได้ถึง 90 นาที$tag")
-                    .setUsesChronometer(true).setWhen(startAt).setShowWhen(true)
-                else -> b.setContentTitle("ครบ 90 นาทีแล้ว")
-                    .setContentText("แตะเพื่อบันทึก $pet พร้อมเวลา$tag")
+                now < startAt + MAX_FOCUS_MS -> b.setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖 +${fmtClock((now - target) / 1000)}")
+                    .setContentText("เกินเวลา +${fmtClock((now - target) / 1000)} · รวม ${fmtClock((now - startAt) / 1000)} · แตะเพื่อเสร็จสิ้น (สูงสุด 90 นาที)$tag")
+                    .setShowWhen(false)
+                else -> b.setContentTitle("ครบ 90 นาทีแล้ว · +${fmtClock((MAX_FOCUS_MS - (target - startAt)) / 1000)}")
+                    .setContentText("หยุดนับแล้ว · แตะเพื่อบันทึก $pet พร้อมเวลา$tag")
             }
         } else {
             if (now < target) {

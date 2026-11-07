@@ -16,7 +16,10 @@ import androidx.core.content.ContextCompat
 
 /** "New dino" notification at the moment the focus target is reached, even if the app is closed. */
 object Notifier {
-    private const val CHANNEL = "focus_done"
+    // new channel id: Android keeps a channel's settings forever, the old one had no vibration
+    private const val CHANNEL = "focus_alert_v2"
+    private const val OLD_CHANNEL = "focus_done"
+    private val PATTERN = longArrayOf(0, 400, 200, 400, 200, 600)
     private const val REQ = 42
     private const val NOTIF_ID = 1
 
@@ -67,9 +70,13 @@ object Notifier {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
         val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.deleteNotificationChannel(OLD_CHANNEL)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "โฟกัสสำเร็จ", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "แจ้งเตือนเมื่อครบเวลาโฟกัสและได้ไดโนเสาร์ใหม่"
+            NotificationChannel(CHANNEL, "ครบเวลาโฟกัส / พัก", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "แจ้งเตือนพร้อมสั่นเมื่อได้ไดโนเสาร์ใหม่หรือพักเสร็จ"
+                enableVibration(true)
+                vibrationPattern = PATTERN
+                enableLights(true)
             }
         )
         val open = PendingIntent.getActivity(
@@ -85,9 +92,32 @@ object Notifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
+            .setVibrate(PATTERN)
+            .setDefaults(NotificationCompat.DEFAULT_SOUND)
             .setContentIntent(open)
             .build()
         try { NotificationManagerCompat.from(ctx).notify(NOTIF_ID, n) } catch (_: SecurityException) {}
+        vibrate(ctx)
+    }
+
+    /** Vibrate directly too, so it buzzes even when the phone mutes notification vibration. */
+    private fun vibrate(ctx: Context) {
+        try {
+            val v = if (Build.VERSION.SDK_INT >= 31) {
+                ctx.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                ctx.getSystemService(android.os.Vibrator::class.java)
+            } ?: return
+            if (!v.hasVibrator()) return
+            val attrs = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            @Suppress("DEPRECATION")
+            v.vibrate(android.os.VibrationEffect.createWaveform(PATTERN, -1), attrs)
+        } catch (_: Exception) {
+        }
     }
 }
 
