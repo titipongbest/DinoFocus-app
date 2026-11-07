@@ -66,7 +66,7 @@ data class AppData(
     fun tagColor(name: String?): Long =
         if (name == null || name == NO_TAG) NO_TAG_COLOR else tags.firstOrNull { it.name == name }?.color ?: NO_TAG_COLOR
     fun entriesOn(day: String) = collection.indices.filter { collection[it].day == day }
-    fun minutesOn(day: String) = Math.round((dailyWorkSec[day] ?: 0) / 60.0).toInt()
+    fun minutesOn(day: String) = (dailyWorkSec[day] ?: 0) / 60
     /** Daily minutes, rounds, total and streak rebuilt from the rounds themselves (used after a sync merge). */
     fun recomputed(): AppData {
         val ws = HashMap<String, Int>()

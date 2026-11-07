@@ -272,7 +272,8 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
     // items before the day list: switch, [tag chips], week nav, chart, breakdown, [all-time title + totals], "ทุกวัน"
-    val dayListOffset = if (byTag) 7 else 5
+    // items before the day list: switch, [tag chips, all-time line], week nav, chart, [dino count], "รายวัน"
+    val dayListOffset = if (byTag) 6 else 5
     var chartSel by remember(weekOffset) { mutableStateOf<Int?>(null) }
 
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
@@ -282,6 +283,22 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 TagChip("ทั้งหมด", p.accentGlow, selected = tagFilter == null, small = true) { tagFilter = null }
                 names.forEach { n ->
                     TagChip(n, Color(d.tagColor(n)), selected = tagFilter == n, small = true) { tagFilter = n }
+                }
+            }
+        }
+        // all-time totals as one plain line under the filter
+        if (byTag) item {
+            val sums = d.collection.filter { match(it) && it.workSec > 0 }.groupBy { it.tag ?: NO_TAG }
+                .mapValues { e -> e.value.sumOf { it.workSec } }.entries.sortedByDescending { it.value }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("รวมตลอดกาล", color = p.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (sums.isEmpty()) Text("—", color = p.muted, fontSize = 12.sp)
+                sums.forEach { (name, sec) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Dot(Color(d.tagColor(name)), 6.dp)
+                        Text(" $name ", color = p.muted, fontSize = 12.sp)
+                        Text(fmtDuration(sec), color = p.fg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -314,14 +331,6 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
         if (!byTag) item {
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
             DinoBreakdown(d, inRange)
-        }
-        if (byTag) {
-            item { SubTitle("รวมตลอดกาล" + (histTag?.let { " · $it" } ?: "")) }
-            item {
-                val all = d.collection.filter { match(it) }
-                if (all.none { it.workSec > 0 }) MutedBox("ยังไม่มีเวลาที่บันทึก")
-                else TagBreakdown(d, all, longFormat = true)
-            }
         }
         item { SubTitle("รายวัน") }
         if (dayKeys.isEmpty()) {
