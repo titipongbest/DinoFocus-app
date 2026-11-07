@@ -65,10 +65,8 @@ object Notifier {
         "$dinoName ฟักแล้ว · ครบ $minutes นาที\nนับเวลาต่อได้ถึง 90 นาที กดเสร็จสิ้นเพื่อบันทึก",
     )
 
-    private fun post(ctx: Context, title: String, text: String) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+    /** Creates the alert channel (sound + vibration) and returns its id. */
+    fun alertChannel(ctx: Context): String {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.deleteNotificationChannel(OLD_CHANNEL)
         nm.createNotificationChannel(
@@ -77,8 +75,17 @@ object Notifier {
                 enableVibration(true)
                 vibrationPattern = PATTERN
                 enableLights(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
         )
+        return CHANNEL
+    }
+
+    private fun post(ctx: Context, title: String, text: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        alertChannel(ctx)
         val open = PendingIntent.getActivity(
             ctx, 0,
             Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -92,6 +99,7 @@ object Notifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setVibrate(PATTERN)
             .setDefaults(NotificationCompat.DEFAULT_SOUND)
             .setContentIntent(open)
@@ -101,7 +109,7 @@ object Notifier {
     }
 
     /** Vibrate directly too, so it buzzes even when the phone mutes notification vibration. */
-    private fun vibrate(ctx: Context) {
+    fun vibrate(ctx: Context) {
         try {
             val v = if (Build.VERSION.SDK_INT >= 31) {
                 ctx.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
@@ -124,7 +132,20 @@ object Notifier {
 class SuccessReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val min = intent.getIntExtra("min", 0)
-        if (intent.getStringExtra("kind") == "break") Notifier.showBreakDone(ctx, min)
-        else Notifier.showSuccess(ctx, intent.getStringExtra("name") ?: "ไดโนเสาร์", min)
+        if (intent.getStringExtra("kind") == "break") {
+            Notifier.showBreakDone(ctx, min)
+            return
+        }
+        // the running countdown notification turns into the alert by itself; only post one if it is gone
+        if (TimerService.running) return
+        val d = Store.load(ctx)
+        if (d.session.runStart != null) {
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, TimerService::class.java))
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Notifier.showSuccess(ctx, intent.getStringExtra("name") ?: "ไดโนเสาร์", min)
     }
 }

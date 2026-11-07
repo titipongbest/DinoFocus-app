@@ -35,7 +35,10 @@ object Store {
  */
 class TimerService : Service() {
     companion object {
-        private const val CHANNEL = "focus_timer"
+        private const val CHANNEL = "focus_timer_v2"
+
+        /** True while the service is alive in this process (it then raises the target alert itself). */
+        @Volatile var running = false
         private const val NOTIF_ID = 7
 
         fun sync(ctx: Context, data: AppData) {
@@ -94,16 +97,25 @@ class TimerService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
+    /**
+     * One notification for the whole round, also on the lock screen. When the target is reached this same
+     * notification alerts once (sound + vibration) and then shows "15 +01:16", ticking every second.
+     */
     private fun build(data: AppData): android.app.Notification {
         val nm = getSystemService(NotificationManager::class.java)
+        nm.deleteNotificationChannel("focus_timer")
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "ตัวจับเวลา", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL, "ตัวจับเวลา", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "นับถอยหลังระหว่างโฟกัสและพัก"
+                setSound(null, null)
+                enableVibration(false)
                 setShowBadge(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
         )
         val open = PendingIntent.getActivity(
@@ -111,33 +123,49 @@ class TimerService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val b = NotificationCompat.Builder(this, CHANNEL)
+        val s = data.session
+        val runStart = s.runStart
+        val startAt = (runStart ?: 0L) - s.accumulated
+        val target = startAt + data.minutesFor(data.mode) * 60_000L
+        val now = System.currentTimeMillis()
+        val overtime = runStart != null && data.mode == MODE_WORK && now >= target
+
+        // the first build past the target alerts; later updates stay quiet
+        val marks = getSharedPreferences("dinofocus_ui", MODE_PRIVATE)
+        val alertNow = overtime && marks.getLong("alertedStart", 0L) != startAt
+        if (alertNow) {
+            marks.edit().putLong("alertedStart", startAt).apply()
+            Notifier.cancelAlarm(this)
+            Notifier.vibrate(this)
+        }
+
+        val b = NotificationCompat.Builder(this, if (overtime) Notifier.alertChannel(this) else CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_dino)
             .setContentIntent(open)
             .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+            .setOnlyAlertOnce(!alertNow)
+            .setSilent(!alertNow)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(if (overtime) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_STOPWATCH)
+            .setPriority(if (overtime) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
-        val s = data.session
-        val runStart = s.runStart ?: return b.setContentTitle("DinoFocus").build()
-        val startAt = runStart - s.accumulated
-        val target = startAt + data.minutesFor(data.mode) * 60_000L
-        val now = System.currentTimeMillis()
+        if (runStart == null) return b.setContentTitle("DinoFocus").build()
         val pet = Dinos.get(data.pet).name
         val tag = data.tag?.let { " · $it" } ?: ""
 
         if (data.mode == MODE_WORK) {
+            val overSec = (minOf(now, startAt + MAX_FOCUS_MS) - target) / 1000
             when {
                 now < target -> b.setContentTitle("🦖 โฟกัสอยู่ · $pet")
                     .setContentText("อดทนไว้! ไดโนเสาร์จะฟักเวลา ${hhmm(target)}$tag")
                     .setUsesChronometer(true).setChronometerCountDown(true).setWhen(target).setShowWhen(true)
-                now < startAt + MAX_FOCUS_MS -> b.setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖 +${fmtClock((now - target) / 1000)}")
-                    .setContentText("เกินเวลา +${fmtClock((now - target) / 1000)} · รวม ${fmtClock((now - startAt) / 1000)} · แตะเพื่อเสร็จสิ้น (สูงสุด 90 นาที)$tag")
+                now < startAt + MAX_FOCUS_MS -> b.setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖")
+                    .setContentText("${data.workMin} +${fmtClock(overSec)} นาที · แตะเพื่อเสร็จสิ้น$tag")
                     .setShowWhen(false)
-                else -> b.setContentTitle("ครบ 90 นาทีแล้ว · +${fmtClock((MAX_FOCUS_MS - (target - startAt)) / 1000)}")
-                    .setContentText("หยุดนับแล้ว · แตะเพื่อบันทึก $pet พร้อมเวลา$tag")
+                else -> b.setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖 ครบ 90 นาที")
+                    .setContentText("${data.workMin} +${fmtClock(overSec)} นาที · แตะเพื่อบันทึก$tag")
+                    .setShowWhen(false)
             }
         } else {
             if (now < target) {
@@ -149,6 +177,11 @@ class TimerService : Service() {
             }
         }
         return b.build()
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        running = true
     }
 }
 

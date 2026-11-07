@@ -217,7 +217,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 update { it.copy(session = it.session.copy(notified = true)) }
                 chime()
                 Notifier.cancelAlarm(getApplication())
-                Notifier.showSuccess(getApplication(), Dinos.get(data.pet).name, data.workMin)
+                // the countdown notification itself turns into the "new dino" alert (TimerService)
+                if (!TimerService.running) Notifier.showSuccess(getApplication(), Dinos.get(data.pet).name, data.workMin)
             }
         } else if (el >= targetMs) {
             chime()
