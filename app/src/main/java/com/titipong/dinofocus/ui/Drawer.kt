@@ -420,7 +420,7 @@ private fun dayItems(
             }
             if (open) {
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
+                    // the ground is shown above the chart when a day is tapped, so not repeated here
                     if (histTag == null) TagBreakdown(d, list, inner = true)
                     if (!byTag) list.forEach { SessionRow(d, it, inner = true) }
                 }
