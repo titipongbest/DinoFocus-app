@@ -85,6 +85,7 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
         val w = min(maxWidth * 0.9f, 380.dp)
         AnimatedVisibility(open, enter = slideInHorizontally { it }, exit = slideOutHorizontally { it }) {
             var tab by remember { mutableStateOf("today") }
+            var view by remember { mutableStateOf(VIEW_DINO) }
             Column(
                 Modifier
                     .width(w)
@@ -133,8 +134,8 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                 }
                 Box(Modifier.weight(1f)) {
                     when (tab) {
-                        "today" -> TodayTab(vm)
-                        "history" -> HistoryTab(vm)
+                        "today" -> TodayTab(vm, view) { view = it }
+                        "history" -> HistoryTab(vm, view) { view = it }
                         else -> SyncTab(vm)
                     }
                 }
@@ -161,8 +162,38 @@ private fun StatChip(value: String, label: String, modifier: Modifier) {
     }
 }
 
+private const val VIEW_DINO = "dino"
+private const val VIEW_TAG = "tag"
+
+/** Switch between looking at the data by dinosaur or by tag. */
 @Composable
-private fun TodayTab(vm: AppViewModel) {
+private fun ViewSwitch(view: String, onView: (String) -> Unit) {
+    val p = LocalPal.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(999.dp))
+            .background(p.surface2)
+            .border(1.dp, p.border, RoundedCornerShape(999.dp))
+            .padding(3.dp),
+    ) {
+        listOf(VIEW_DINO to "🦖 ตามไดโนเสาร์", VIEW_TAG to "🏷️ ตาม tag").forEach { (id, label) ->
+            val on = view == id
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (on) p.accent else Color.Transparent)
+                    .clickable { onView(id) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = if (on) Color.White else p.muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium) }
+        }
+    }
+}
+
+@Composable
+private fun TodayTab(vm: AppViewModel, view: String, onView: (String) -> Unit) {
     val d = vm.data
     val today = todayKey()
     val keys = d.entriesOn(today)
@@ -174,13 +205,16 @@ private fun TodayTab(vm: AppViewModel) {
                 StatChip("${d.dailyPomos[today] ?: 0}", "รอบวันนี้", Modifier.weight(1f))
             }
         }
-        item { SubTitle("ไดโนเสาร์วันนี้") }
-        item {
-            GroundView(d, keys, vm.todaySel, { vm.todaySel = it }, "ยังไม่มีไดโนเสาร์วันนี้ เรียนให้จบรอบเพื่อรับตัวแรก")
-        }
-        item { SubTitle("แยกตาม tag") }
-        item {
-            if (list.none { it.workSec > 0 }) MutedBox("ยังไม่มีเวลาที่บันทึกวันนี้") else TagBreakdown(d, list)
+        item { ViewSwitch(view, onView) }
+        if (view == VIEW_DINO) {
+            item {
+                GroundView(d, keys, vm.todaySel, { vm.todaySel = it }, "ยังไม่มีไดโนเสาร์วันนี้ เรียนให้จบรอบเพื่อรับตัวแรก")
+            }
+            if (list.isNotEmpty()) item { DinoBreakdown(d, list) }
+        } else {
+            item {
+                if (list.none { it.workSec > 0 }) MutedBox("ยังไม่มีเวลาที่บันทึกวันนี้") else TagBreakdown(d, list)
+            }
         }
         item { SubTitle("รอบที่เรียนวันนี้") }
         if (list.isEmpty()) item { MutedBox("ยังไม่มีรอบวันนี้ กด Start Focus เพื่อเริ่มเรียน") }
@@ -191,15 +225,16 @@ private fun TodayTab(vm: AppViewModel) {
 
 // ── history ─────────────────────────────────────────────────────────────
 
-private const val DAY_LIST_OFFSET = 6
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HistoryTab(vm: AppViewModel) {
+private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit) {
     val p = LocalPal.current
     val d = vm.data
     val today = todayKey()
-    var histTag by remember { mutableStateOf<String?>(null) }
+    var tagFilter by remember { mutableStateOf<String?>(null) }
+    val byTag = view == VIEW_TAG
+    // the tag filter only applies while looking "by tag"
+    val histTag = if (byTag) tagFilter else null
     var weekOffset by remember { mutableIntStateOf(0) }
     var openDay by remember { mutableStateOf<String?>(null) }
     var histSel by remember { mutableIntStateOf(-1) }
@@ -217,7 +252,7 @@ private fun HistoryTab(vm: AppViewModel) {
         d.collection.forEach { e -> e.tag?.let { if (it !in this) add(it) } }
         if (d.collection.any { it.tag == null && it.workSec > 0 }) add(NO_TAG)
     }
-    if (histTag != null && histTag !in names) histTag = null
+    if (tagFilter != null && tagFilter !in names) tagFilter = null
 
     val dayKeys = (d.dailyPomos.keys + d.dailyWorkSec.keys + d.collection.map { it.day }).toSortedSet().reversed()
         .filter { histTag == null || indicesOn(it).isNotEmpty() }
@@ -228,13 +263,16 @@ private fun HistoryTab(vm: AppViewModel) {
     val vals = days.map { minutes(it.toString()) }
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
+    // items before the day list: switch, [tag chips], week nav, chart, breakdown, "ทุกวัน"
+    val dayListOffset = if (byTag) 6 else 5
+
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
-        item { SubTitle("ดูตาม tag") }
-        item {
+        item { ViewSwitch(view, onView) }
+        if (byTag) item {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                TagChip("ทั้งหมด", p.accentGlow, selected = histTag == null, small = true) { histTag = null }
+                TagChip("ทั้งหมด", p.accentGlow, selected = tagFilter == null, small = true) { tagFilter = null }
                 names.forEach { n ->
-                    TagChip(n, Color(d.tagColor(n)), selected = histTag == n, small = true) { histTag = n }
+                    TagChip(n, Color(d.tagColor(n)), selected = tagFilter == n, small = true) { tagFilter = n }
                 }
             }
         }
@@ -254,21 +292,19 @@ private fun HistoryTab(vm: AppViewModel) {
                 val idx = dayKeys.indexOf(k)
                 if (idx >= 0) {
                     openDay = k
-                    scope.launch { listState.animateScrollToItem(DAY_LIST_OFFSET + idx) }
+                    scope.launch { listState.animateScrollToItem(dayListOffset + idx) }
                 }
             }
         }
         item {
-            if (histTag == null) {
-                val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
-                TagBreakdown(d, inRange)
-            }
+            val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
+            if (!byTag) DinoBreakdown(d, inRange) else if (histTag == null) TagBreakdown(d, inRange)
         }
         item { SubTitle("ทุกวัน") }
         if (dayKeys.isEmpty()) {
             item { MutedBox(if (histTag == null) "ยังไม่มีข้อมูลย้อนหลัง" else "ยังไม่มีรอบที่บันทึกกับ \"$histTag\"") }
         } else {
-            dayItems(this, d, dayKeys, today, openDay, histTag, histSel, ::indicesOn, ::minutes,
+            dayItems(this, d, dayKeys, today, openDay, byTag, histTag, histSel, ::indicesOn, ::minutes,
                 onToggle = { k -> openDay = if (openDay == k) null else k },
                 onSel = { histSel = it })
         }
@@ -282,6 +318,7 @@ private fun dayItems(
     dayKeys: List<String>,
     today: String,
     openDay: String?,
+    byTag: Boolean,
     histTag: String?,
     histSel: Int,
     indicesOn: (String) -> List<Int>,
@@ -317,15 +354,30 @@ private fun dayItems(
                     Text("${minutes(k)}", color = p.accentGlow, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text(" นาที · $rounds รอบ", color = p.muted, fontSize = 12.sp)
                 }
-                Row(Modifier.fillMaxWidth().clipToBounds()) {
-                    if (list.isEmpty()) Text("—", color = p.muted)
-                    list.take(14).forEach { SpriteImage(it.spriteId, 24.dp) }
+                if (byTag) {
+                    // tag colors with minutes, biggest first
+                    val sums = list.filter { it.workSec > 0 }.groupBy { it.tag ?: NO_TAG }
+                        .mapValues { e -> e.value.sumOf { it.workSec } / 60 }.entries.sortedByDescending { it.value }
+                    Row(Modifier.fillMaxWidth().clipToBounds(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (sums.isEmpty()) Text("—", color = p.muted)
+                        sums.take(4).forEach { (name, min) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Dot(Color(d.tagColor(name)), 7.dp)
+                                Text(" $name $min", color = p.muted, fontSize = 11.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth().clipToBounds()) {
+                        if (list.isEmpty()) Text("—", color = p.muted)
+                        list.take(14).forEach { SpriteImage(it.spriteId, 24.dp) }
+                    }
                 }
             }
             if (open) {
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
-                    if (histTag == null) TagBreakdown(d, list, inner = true)
+                    if (!byTag) GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
+                    else if (histTag == null) TagBreakdown(d, list, inner = true)
                     list.forEach { SessionRow(d, it, inner = true) }
                 }
             }

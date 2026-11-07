@@ -225,3 +225,30 @@ fun lerpColor(a: Color, b: Color, t: Float) = Color(
     blue = a.blue + (b.blue - a.blue) * t,
     alpha = a.alpha + (b.alpha - a.alpha) * t,
 )
+
+/** How many of each dinosaur (and graves) in a list of rounds, most first. */
+@Composable
+fun DinoBreakdown(data: AppData, list: List<Entry>) {
+    val p = LocalPal.current
+    if (list.isEmpty()) return
+    val groups = list.groupBy { it.spriteId }.entries.sortedWith(compareByDescending<Map.Entry<String, List<Entry>>> { it.value.size }.thenBy { it.key == "grave" })
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(p.surface)
+            .border(1.dp, p.border, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        groups.forEach { (id, items) ->
+            val sp = Dinos.get(id)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SpriteImage(id, 28.dp)
+                Text(sp.name, color = p.fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text("${items.sumOf { it.workSec } / 60} นาที", color = p.muted, fontSize = 12.sp)
+                Text("×${items.size}", color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
