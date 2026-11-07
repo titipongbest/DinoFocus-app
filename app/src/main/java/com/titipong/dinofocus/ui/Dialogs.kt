@@ -146,18 +146,7 @@ fun ResultDialog(vm: AppViewModel, r: RoundResult) {
                 SpriteImage(if (r.dead) "grave" else r.sp, 120.dp, Modifier.offset(y = if (r.dead) 0.dp else bounce.dp))
                 Text(if (r.dead) "${sp.name} ตายแล้ว" else sp.name, color = p.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 if (!r.dead) RarityChip(sp.rarity)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlineButton("กลับหน้าหลัก", Modifier.weight(1f)) { vm.recordResult(goBreak = false) }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(p.green)
-                            .clickable { vm.recordResult(goBreak = true) }
-                            .padding(vertical = 14.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("☕ พักสั้น", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                }
+                FinishButtons(onFinish = { vm.recordResult(goBreak = false) }, onBreak = { vm.recordResult(goBreak = true) })
             }
         }
     }
@@ -296,6 +285,87 @@ fun TagDialog(vm: AppViewModel, onClose: () -> Unit) {
                     )
                 }
                 OutlineButton("ปิด", Modifier.fillMaxWidth(), onClose)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FinishButtons(onFinish: () -> Unit, onBreak: () -> Unit) {
+    val p = LocalPal.current
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(p.accent)
+                .clickable(onClick = onFinish)
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("เสร็จสิ้น", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+        Box(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(p.green)
+                .clickable(onClick = onBreak)
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("☕ Take a break", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+/** Opens when the target is reached; time keeps counting (max 90 min) until Finish / Take a break. */
+@Composable
+fun SuccessDialog(vm: AppViewModel) {
+    val p = LocalPal.current
+    val d = vm.data
+    val sp = Dinos.get(d.pet)
+    val el = vm.elapsedMs
+    val over = el - d.workMin * 60_000L
+    val bounce by rememberInfiniteTransition(label = "b").animateFloat(
+        0f, -8f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "y",
+    )
+    Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
+        Box(Modifier.padding(24.dp)) {
+            DialogBox(p.yellow) {
+                DialogTitle("ไดโนเสาร์ใหม่สำเร็จ!", p.yellow)
+                SpriteImage(sp.id, 120.dp, Modifier.offset(y = bounce.dp))
+                Text(sp.name, color = p.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                RarityChip(sp.rarity)
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(p.surface2)
+                        .border(1.dp, p.border, RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(if (vm.atCap) "ครบ 90 นาทีแล้ว หยุดนับเวลา" else "กำลังนับเวลาต่อ…", color = if (vm.atCap) p.yellow else p.muted, fontSize = 11.sp)
+                    Text(fmtClock(el / 1000), color = p.fg, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (d.tag != null) {
+                            Dot(Color(d.tagColor(d.tag)), 6.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text("${d.tag} · ", color = p.muted, fontSize = 12.sp)
+                        }
+                        Text(
+                            buildAnnotatedString {
+                                append("เป้าหมาย ${d.workMin} นาที")
+                                if (over >= 1000) {
+                                    append(" · เกิน ")
+                                    withStyle(SpanStyle(color = p.yellow, fontWeight = FontWeight.SemiBold)) { append("+${fmtClock(over / 1000)}") }
+                                }
+                            },
+                            color = p.muted, fontSize = 12.sp,
+                        )
+                    }
+                    if (!vm.atCap) Text("นับได้สูงสุด 90 นาที", color = p.muted, fontSize = 11.sp)
+                }
+                Text("กดเสร็จสิ้นเพื่อบันทึกไดโนเสาร์พร้อมเวลา", color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
+                FinishButtons(onFinish = { vm.finishSuccess(goBreak = false) }, onBreak = { vm.finishSuccess(goBreak = true) })
             }
         }
     }

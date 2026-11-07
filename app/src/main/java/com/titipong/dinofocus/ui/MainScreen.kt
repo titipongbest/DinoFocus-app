@@ -1,6 +1,13 @@
 package com.titipong.dinofocus.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -97,6 +104,7 @@ fun MainScreen(vm: AppViewModel) {
         Drawer(vm, open = drawerOpen, onClose = { drawerOpen = false })
 
         vm.result?.let { ResultDialog(vm, it) }
+        if (vm.successOpen) SuccessDialog(vm)
         if (petPicker) PetPickerDialog(vm) { petPicker = false }
         if (tagDialog) TagDialog(vm) { tagDialog = false }
 
@@ -216,7 +224,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
 
         Ring(vm, el, tgt, over, started)
 
-        if (over) Text("ครบเวลาแล้ว · กดหยุดเมื่อทำงานเสร็จเพื่อบันทึก", color = p.yellow, fontSize = 12.sp, textAlign = TextAlign.Center)
+        if (over) Text(if (vm.atCap) "ครบ 90 นาทีแล้ว · กดเสร็จสิ้นเพื่อบันทึก" else "ไดโนเสาร์ใหม่สำเร็จ · นับเวลาต่อได้ถึง 90 นาที", color = p.yellow, fontSize = 12.sp, textAlign = TextAlign.Center)
 
         // duration slider (locked once started)
         val range = SliderCfg.range(d.mode)
@@ -252,7 +260,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
             val name = Dinos.get(d.pet).name
             val (label, style, hint) = when {
                 !started -> Triple("Start Focus", BtnStyle.Primary, "")
-                over -> Triple("■ หยุดและบันทึก", BtnStyle.Stop, "")
+                over -> Triple("เสร็จสิ้น", BtnStyle.Stop, "")
                 el < CANCEL_MS -> Triple(
                     "ยกเลิก (${ceil((CANCEL_MS - el) / 1000.0).toInt()})", BtnStyle.Cancel,
                     "ยกเลิกได้ภายใน 10 วินาที หลังจากนั้นต้องยอมแพ้เท่านั้น",
@@ -260,7 +268,15 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
                 vm.giveUpArmed -> Triple("แตะอีกครั้งเพื่อยอมแพ้", BtnStyle.Confirm, "$name จะตายและกลายเป็นหลุมศพ")
                 else -> Triple("ยอมแพ้", BtnStyle.GiveUp, "อดทนไว้ $name กำลังรออยู่")
             }
-            BigButton(label, style, Modifier.widthIn(min = 220.dp)) { vm.onFocusButton() }
+            val ctx = LocalContext.current
+            val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+            BigButton(label, style, Modifier.widthIn(min = 220.dp)) {
+                if (over) { vm.finishSuccess(goBreak = false); return@BigButton }
+                if (!started && Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                vm.onFocusButton()
+            }
             Text(hint, color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.offset(y = (-10).dp))
         } else {
             if (!started) {

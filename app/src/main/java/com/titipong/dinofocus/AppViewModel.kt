@@ -85,7 +85,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── time ────────────────────────────────────────────────────────────
-    val elapsedMs: Long get() = data.session.accumulated + (data.session.runStart?.let { now - it } ?: 0L)
+    private val rawElapsedMs: Long get() = data.session.accumulated + (data.session.runStart?.let { now - it } ?: 0L)
+    /** Focus rounds stop counting at 90 minutes. */
+    val elapsedMs: Long get() = if (data.mode == MODE_WORK) minOf(rawElapsedMs, MAX_FOCUS_MS) else rawElapsedMs
+    val atCap: Boolean get() = data.mode == MODE_WORK && rawElapsedMs >= MAX_FOCUS_MS
+    /** Target reached: the "new dino" window stays open until Finish or Take a break. */
+    val successOpen: Boolean get() = inOvertime && result == null
     val targetMs: Long get() = data.minutesFor(data.mode) * 60_000L
     val isRunning: Boolean get() = data.session.runStart != null
     val inOvertime: Boolean get() = data.mode == MODE_WORK && elapsedMs >= targetMs
@@ -99,7 +104,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (el >= targetMs && !data.session.notified) {
                 update { it.copy(session = it.session.copy(notified = true)) }
                 chime()
-                showToast("ครบเวลาแล้ว! ทำต่อได้เลย กด ■ เมื่อเสร็จ")
             }
         } else if (el >= targetMs) {
             chime()
@@ -111,6 +115,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun start() {
         now = System.currentTimeMillis()
         update { it.copy(session = it.session.copy(runStart = now)) }
+        if (data.mode == MODE_WORK && !data.session.notified) {
+            Notifier.scheduleSuccess(getApplication(), now + (targetMs - data.session.accumulated), Dinos.get(data.pet).name, data.workMin)
+        }
     }
 
     private fun pause() {
@@ -119,7 +126,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         update { it.copy(session = it.session.copy(accumulated = el, runStart = null)) }
     }
 
-    private fun clearSession() = update { it.copy(session = Session()) }
+    private fun clearSession() {
+        Notifier.cancelSuccess(getApplication())
+        update { it.copy(session = Session()) }
+    }
 
     /** Mode tabs: locked while a focus round is in progress. */
     fun selectModeTab(mode: String) {
@@ -129,6 +139,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun switchMode(mode: String) {
         giveUpArmed = false
+        Notifier.cancelSuccess(getApplication())
         update { it.copy(mode = mode, session = Session()) }
     }
 
@@ -145,7 +156,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val el = elapsedMs
         when {
             el == 0L && !isRunning -> start()
-            inOvertime -> finishWork(false)
+            inOvertime -> {}
             el < CANCEL_MS -> { clearSession(); showToast("ยกเลิกแล้ว") }
             !giveUpArmed -> {
                 giveUpArmed = true
@@ -166,6 +177,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun breakToFocus() { switchMode(MODE_WORK); start() }
 
     private fun finishWork(dead: Boolean) {
+        Notifier.cancelSuccess(getApplication())
         pause()
         val workSec = Math.round(elapsedMs / 1000.0).toInt()
         val targetMin = data.workMin
@@ -177,6 +189,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             overSec = maxOf(0, workSec - targetMin * 60),
             tag = data.tag,
         )
+    }
+
+    /** Finish (goBreak = false) or Take a break from the "new dino" window: save dino + real time. */
+    fun finishSuccess(goBreak: Boolean) {
+        if (!inOvertime) return
+        now = System.currentTimeMillis()
+        val workSec = Math.round(elapsedMs / 1000.0).toInt()
+        val targetMin = data.workMin
+        result = RoundResult(false, data.pet, workSec, targetMin, maxOf(0, workSec - targetMin * 60), data.tag)
+        recordResult(goBreak)
     }
 
     /** Save the round shown in the popup, then go home or straight into a short break. */
