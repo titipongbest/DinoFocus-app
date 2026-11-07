@@ -410,7 +410,7 @@ private fun BackupTab(vm: AppViewModel) {
     val p = LocalPal.current
     val d = vm.data
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) vm.setBackupFolder(uri)
+        if (uri != null) vm.chooseBackupFolder(uri)
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.readImport(uri)

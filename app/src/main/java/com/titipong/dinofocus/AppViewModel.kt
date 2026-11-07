@@ -98,7 +98,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         get() = backupFolder?.let { runCatching { DocumentFile.fromTreeUri(getApplication(), it)?.name }.getOrNull() }
 
     /** Remember the folder, then export into it. */
-    fun setBackupFolder(tree: Uri) {
+    fun chooseBackupFolder(tree: Uri) {
         val cr = getApplication<Application>().contentResolver
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         backupFolder?.takeIf { it != tree }?.let { old -> runCatching { cr.releasePersistableUriPermission(old, flags) } }
