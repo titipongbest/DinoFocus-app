@@ -85,7 +85,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (x.tag != null && x.tags.none { it.name == x.tag }) x = x.copy(tag = null)
         val wr = SliderCfg.range(MODE_WORK); val sr = SliderCfg.range(MODE_SHORT)
         // every round needs an id so syncing never counts it twice (old rounds get a stable one)
-        x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) }).withEntryIds()
+        x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) }).withEntryIds().withWholeMinutes()
         // rebuild daily minutes/rounds from the rounds themselves (also counts older given-up rounds)
         return x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr)).recomputed()
     }
@@ -322,10 +322,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val nowMs = System.currentTimeMillis()
         val today = dayKey(nowMs)
         update { d ->
-            val entry = Entry(id = java.util.UUID.randomUUID().toString(), sp = r.sp, ts = nowMs, workSec = r.workSec, targetMin = r.targetMin, tag = r.tag, dead = r.dead)
+            // seconds are dropped: a round counts whole minutes only, so rounds always add up to the totals
+            val sec = r.workSec / 60 * 60
+            val entry = Entry(id = java.util.UUID.randomUUID().toString(), sp = r.sp, ts = nowMs, workSec = sec, targetMin = r.targetMin, tag = r.tag, dead = r.dead)
             var n = d.copy(
                 collection = d.collection + entry,
-                dailyWorkSec = d.dailyWorkSec + (today to (d.dailyWorkSec[today] ?: 0) + r.workSec),
+                dailyWorkSec = d.dailyWorkSec + (today to (d.dailyWorkSec[today] ?: 0) + sec),
             )
             // every round counts, a given-up one (grave) too; only the streak needs a living dino
             n = n.copy(

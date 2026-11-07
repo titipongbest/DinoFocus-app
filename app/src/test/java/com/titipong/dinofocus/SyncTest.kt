@@ -125,4 +125,21 @@ class SyncTest {
         val a = sync(device(round("a1", at(today, 9), 15)))
         assertEquals(45, a.minutesOn(today.toString()))
     }
+
+    @Test fun secondsAreDroppedSoRoundsAddUp() {
+        // 4:50 + 15:40 + 0:45 + 25:30 + 17:40 → 4 + 15 + 0 + 25 + 17 = 61
+        val secs = listOf(290, 940, 45, 1530, 1060)
+        var a = AppData(collection = secs.mapIndexed { i, s -> Entry(id = "s$i", sp = "rex", ts = at(today, 8 + i), workSec = s) })
+        a = sync(a)
+        assertEquals(61, a.minutesOn(today.toString()))
+        assertEquals(a.collection.sumOf { it.workSec / 60 }, a.minutesOn(today.toString()))
+    }
+
+    @Test fun savedTagsReachTheOtherPhone() {
+        var a = device().copy(tags = listOf(Tag("Blender", 1), Tag("ฟิสิกส์", 2)))
+        var b = device().copy(tags = listOf(Tag("Blender", 1)))
+        a = sync(a); b = sync(b)
+        assertTrue(b.tags.any { it.name == "ฟิสิกส์" })
+        assertEquals(2, b.tags.size)
+    }
 }

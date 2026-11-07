@@ -154,6 +154,10 @@ data class Backup(
 }
 
 /** Every round needs an id so syncing never counts it twice; older rounds get a stable one from their content. */
+/** Drop the seconds of every round (ids are assigned first, so older ids stay the same on every phone). */
+fun AppData.withWholeMinutes(): AppData =
+    copy(collection = collection.map { if (it.workSec % 60 != 0) it.copy(workSec = it.workSec / 60 * 60) else it })
+
 fun AppData.withEntryIds(): AppData =
     copy(collection = collection.map { if (it.id.isBlank()) it.copy(id = "${it.ts}-${it.sp}-${it.workSec}") else it })
 
@@ -162,9 +166,9 @@ fun AppData.withEntryIds(): AppData =
  * daily totals rebuilt from the rounds. This device keeps its own settings and running round.
  */
 fun mergeData(local: AppData, remote: AppData?): AppData {
-    val l = local.withEntryIds()
+    val l = local.withEntryIds().withWholeMinutes()
     if (remote == null) return l.recomputed()
-    val r = remote.withEntryIds()
+    val r = remote.withEntryIds().withWholeMinutes()
     val all = LinkedHashMap<String, Entry>()
     (l.collection + r.collection).forEach { all.putIfAbsent(it.id, it) }
     val tags = l.tags + r.tags.filter { t -> l.tags.none { it.name.equals(t.name, ignoreCase = true) } }

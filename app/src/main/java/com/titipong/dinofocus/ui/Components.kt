@@ -166,8 +166,7 @@ fun SessionRow(data: AppData, d: Entry, inner: Boolean = false) {
             }
         }
         Text(
-            // minutes:seconds, so the rows add up to the day's total (which counts every second)
-            if (d.workSec > 0) "${d.workSec / 60}:${String.format("%02d", d.workSec % 60)}" else "—",
+            if (d.workSec > 0) "${d.workSec / 60} นาที" else "0 นาที",
             color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
         )
     }
