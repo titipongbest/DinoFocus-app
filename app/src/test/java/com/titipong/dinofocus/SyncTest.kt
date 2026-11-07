@@ -142,4 +142,36 @@ class SyncTest {
         assertTrue(b.tags.any { it.name == "ฟิสิกส์" })
         assertEquals(2, b.tags.size)
     }
+
+    @Test fun deletedTagIsRemovedOnEveryPhone() {
+        var a = device().copy(tags = listOf(Tag("Blender", 1), Tag("ฟิสิกส์", 2)), tag = "ฟิสิกส์")
+        var b = device().copy(tags = listOf(Tag("Blender", 1), Tag("ฟิสิกส์", 2)))
+        a = sync(a); b = sync(b)
+        // phone A deletes "ฟิสิกส์"
+        a = a.copy(tags = a.tags.filter { it.name != "ฟิสิกส์" }, tag = null, deletedTags = a.deletedTags + ("ฟิสิกส์" to 1000L))
+        a = sync(a); b = sync(b); a = sync(a)
+        assertTrue(a.tags.none { it.name == "ฟิสิกส์" })
+        assertTrue(b.tags.none { it.name == "ฟิสิกส์" })
+        assertTrue(b.tags.any { it.name == "Blender" })
+    }
+
+    @Test fun reAddedTagAfterDeleteComesBackEverywhere() {
+        var a = device().copy(tags = listOf(Tag("Blender", 1)))
+        var b = device().copy(tags = listOf(Tag("Blender", 1)))
+        a = a.copy(tags = emptyList(), deletedTags = mapOf("blender" to 1000L))
+        a = sync(a); b = sync(b)
+        assertTrue(b.tags.isEmpty())
+        // phone B adds it again later
+        b = b.copy(tags = listOf(Tag("Blender", 3, updatedAt = 2000L)), deletedTags = b.deletedTags - "blender")
+        b = sync(b); a = sync(a)
+        assertTrue(a.tags.any { it.name == "Blender" })
+        assertTrue(a.deletedTags.isEmpty())
+    }
+
+    @Test fun selectedTagIsClearedWhenDeletedElsewhere() {
+        var a = device().copy(tags = listOf(Tag("Blender", 1)), tag = "Blender")
+        var b = device().copy(tags = emptyList(), deletedTags = mapOf("blender" to 5000L))
+        b = sync(b); a = sync(a)
+        assertNull(a.tag)
+    }
 }

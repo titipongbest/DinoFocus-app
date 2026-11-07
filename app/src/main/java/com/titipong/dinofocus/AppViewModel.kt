@@ -375,13 +375,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val used = data.tags.map { it.color }
         val color = TAG_COLORS.firstOrNull { it !in used } ?: TAG_COLORS[data.tags.size % TAG_COLORS.size]
-        update { it.copy(tags = it.tags + Tag(name, color), tag = name) }
+        val now = System.currentTimeMillis()
+        update { it.copy(tags = it.tags + Tag(name, color, now), tag = name, deletedTags = it.deletedTags - name.lowercase()) }
         showToast("เพิ่ม tag \"$name\" แล้ว")
         return true
     }
 
     fun deleteTag(name: String) {
-        update { d -> d.copy(tags = d.tags.filter { it.name != name }, tag = if (d.tag == name) null else d.tag) }
+        val now = System.currentTimeMillis()
+        update { d ->
+            d.copy(
+                tags = d.tags.filter { it.name != name },
+                tag = if (d.tag == name) null else d.tag,
+                deletedTags = d.deletedTags + (name.lowercase() to now),
+            )
+        }
         showToast("ลบ tag \"$name\" แล้ว")
     }
 

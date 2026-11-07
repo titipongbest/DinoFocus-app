@@ -21,7 +21,7 @@ val TAG_COLORS = listOf(
 )
 
 @Serializable
-data class Tag(val name: String, val color: Long)
+data class Tag(val name: String, val color: Long, val updatedAt: Long = 0)
 
 /** One finished focus round. dead = the user gave up and the dino became a grave. */
 @Serializable
@@ -61,6 +61,8 @@ data class AppData(
     val tag: String? = null,
     val workMin: Int = 25,
     val shortMin: Int = 5,
+    /** Deleted tags (lower-case name → when), so a delete also reaches the other phones when syncing. */
+    val deletedTags: Map<String, Long> = emptyMap(),
 ) {
     fun minutesFor(mode: String) = if (mode == MODE_WORK) workMin else shortMin
     fun tagColor(name: String?): Long =
@@ -171,6 +173,24 @@ fun mergeData(local: AppData, remote: AppData?): AppData {
     val r = remote.withEntryIds().withWholeMinutes()
     val all = LinkedHashMap<String, Entry>()
     (l.collection + r.collection).forEach { all.putIfAbsent(it.id, it) }
-    val tags = l.tags + r.tags.filter { t -> l.tags.none { it.name.equals(t.name, ignoreCase = true) } }
-    return l.copy(collection = all.values.sortedBy { it.ts }, tags = tags).recomputed()
+    val (tags, deleted) = mergeTags(l, r)
+    val selected = l.tag?.takeIf { s -> tags.any { it.name == s } }
+    return l.copy(collection = all.values.sortedBy { it.ts }, tags = tags, deletedTags = deleted, tag = selected).recomputed()
+}
+
+/**
+ * Tags by name (case-insensitive): the newest event wins. A tag stays if it was added or re-added after
+ * its latest delete on any phone; otherwise it is removed everywhere. Rounds keep their tag name.
+ */
+fun mergeTags(l: AppData, r: AppData): Pair<List<Tag>, Map<String, Long>> {
+    val deleted = HashMap<String, Long>()
+    (l.deletedTags.entries + r.deletedTags.entries).forEach { (k, t) -> deleted[k] = maxOf(deleted[k] ?: 0L, t) }
+    val byName = LinkedHashMap<String, Tag>()
+    (l.tags + r.tags).forEach { t ->
+        val k = t.name.lowercase()
+        val have = byName[k]
+        byName[k] = if (have == null) t else have.copy(updatedAt = maxOf(have.updatedAt, t.updatedAt))
+    }
+    val kept = byName.filter { (k, t) -> t.updatedAt > (deleted[k] ?: -1L) }
+    return kept.values.toList() to deleted.filterKeys { it !in kept.keys }
 }
