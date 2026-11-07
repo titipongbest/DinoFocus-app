@@ -9,6 +9,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import com.titipong.dinofocus.thMonth
+import com.titipong.dinofocus.thDateYear
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -265,7 +272,8 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
     // items before the day list: switch, [tag chips], week nav, chart, breakdown, [all-time title + totals], "ทุกวัน"
-    val dayListOffset = if (byTag) 8 else 5
+    val dayListOffset = if (byTag) 7 else 5
+    var chartSel by remember(weekOffset) { mutableStateOf<Int?>(null) }
 
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item { ViewSwitch(view, onView) }
@@ -289,7 +297,13 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             }
         }
         item {
-            WeekChart(days, vals, today, barColor, hasData = { k -> indicesOn(k).isNotEmpty() || minutes(k) > 0 }) { k ->
+            WeekChart(
+                days, vals, today, barColor,
+                rounds = { k -> if (histTag == null) d.roundsOn(k) else indicesOn(k).count { !d.collection[it].dead } },
+                sel = chartSel,
+                onSel = { chartSel = it },
+                canOpen = { k -> k in dayKeys },
+            ) { k ->
                 val idx = dayKeys.indexOf(k)
                 if (idx >= 0) {
                     openDay = k
@@ -297,9 +311,9 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 }
             }
         }
-        item {
+        if (!byTag) item {
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
-            if (!byTag) DinoBreakdown(d, inRange) else if (histTag == null) TagBreakdown(d, inRange)
+            DinoBreakdown(d, inRange)
         }
         if (byTag) {
             item { SubTitle("รวมตลอดกาล" + (histTag?.let { " · $it" } ?: "")) }
@@ -309,7 +323,7 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 else TagBreakdown(d, all, longFormat = true)
             }
         }
-        item { SubTitle("ทุกวัน") }
+        item { SubTitle("รายวัน") }
         if (dayKeys.isEmpty()) {
             item { MutedBox(if (histTag == null) "ยังไม่มีข้อมูลย้อนหลัง" else "ยังไม่มีรอบที่บันทึกกับ \"$histTag\"") }
         } else {
@@ -356,12 +370,16 @@ private fun dayItems(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (k == today) "วันนี้" else thLongDate(keyToDate(k)),
-                        color = p.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f),
-                    )
-                    Text("${minutes(k)}", color = p.accentGlow, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text(" นาที · $rounds รอบ", color = p.muted, fontSize = 12.sp)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (k == today) "วันนี้ · ${thDayMonth(keyToDate(k))}" else thDateYear(keyToDate(k)),
+                            color = p.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                        Text("$rounds รอบ", color = p.muted, fontSize = 11.sp)
+                    }
+                    // the day's total, big
+                    Text("${minutes(k)}", color = p.accentGlow, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                 }
                 if (byTag) {
                     // tag colors with minutes, biggest first
@@ -387,7 +405,7 @@ private fun dayItems(
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!byTag) GroundView(d, idx, histSel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
                     else if (histTag == null) TagBreakdown(d, list, inner = true)
-                    list.forEach { SessionRow(d, it, inner = true) }
+                    if (!byTag) list.forEach { SessionRow(d, it, inner = true) }
                 }
             }
         }
@@ -409,67 +427,112 @@ private fun NavBtn(label: String, enabled: Boolean, onClick: () -> Unit) {
     ) { Text(label, color = p.fg, fontSize = 20.sp) }
 }
 
+/** Bar chart for 7 days. Tap or drag a finger across it to read any day (empty days read 0). */
 @Composable
 private fun WeekChart(
     days: List<LocalDate>,
     vals: List<Int>,
     today: String,
     barColor: Color?,
-    hasData: (String) -> Boolean,
-    onDay: (String) -> Unit,
+    rounds: (String) -> Int,
+    sel: Int?,
+    onSel: (Int?) -> Unit,
+    canOpen: (String) -> Boolean,
+    onOpen: (String) -> Unit,
 ) {
     val p = LocalPal.current
     val max = maxOf(30, vals.maxOrNull() ?: 0).toFloat()
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(p.surface)
             .border(1.dp, p.border, RoundedCornerShape(12.dp))
-            .padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.Bottom,
+            .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        days.forEachIndexed { i, day ->
-            val k = day.toString()
-            val v = vals[i]
-            val isToday = k == today
-            val has = hasData(k)
-            val fill = when {
-                v == 0 -> p.border
-                barColor != null -> barColor
-                isToday -> p.accent
-                else -> p.accentGlow
-            }
-            Column(
-                Modifier
-                    .weight(1f)
-                    .clickable(enabled = has) { onDay(k) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(if (v > 0) "$v" else "", color = p.muted, fontSize = 10.sp, modifier = Modifier.height(14.dp))
-                Box(Modifier.width(26.dp).height(90.dp), contentAlignment = Alignment.BottomCenter) {
-                    val frac = (v / max).coerceIn(0f, 1f)
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .then(if (frac <= 0f) Modifier.height(2.dp) else Modifier.fillMaxHeight(frac))
-                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-                            .background(fill)
-                            .then(if (isToday && v > 0) Modifier.border(2.dp, p.accentGlow.copy(alpha = 0.4f), RoundedCornerShape(4.dp)) else Modifier)
+        // readout of the touched day
+        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (sel == null) {
+                Text("แตะหรือลากนิ้วบนกราฟเพื่อดูแต่ละวัน", color = p.muted, fontSize = 12.sp)
+            } else {
+                val day = days[sel]
+                val k = day.toString()
+                Column(Modifier.weight(1f)) {
+                    Text(if (k == today) "วันนี้ · ${thDayMonth(day)}" else thDateYear(day), color = p.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${rounds(k)} รอบ", color = p.muted, fontSize = 11.sp)
+                }
+                Text("${vals[sel]}", color = barColor ?: p.accentGlow, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                if (canOpen(k)) {
+                    Text(
+                        "ดู ›", color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 10.dp).clip(RoundedCornerShape(6.dp)).clickable { onOpen(k) }.padding(4.dp),
                     )
                 }
-                Text(
-                    if (isToday) "วันนี้" else thWeekday(day),
-                    color = if (isToday) p.fg else p.muted, fontSize = 10.sp,
-                    fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
-                )
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .pointerInput(days) {
+                    fun idx(x: Float) = (x / size.width * 7).toInt().coerceIn(0, 6)
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        onSel(idx(down.position.x))
+                        val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        if (drag != null) {
+                            onSel(idx(drag.position.x))
+                            horizontalDrag(drag.id) { c -> onSel(idx(c.position.x)); c.consume() }
+                        }
+                    }
+                },
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            days.forEachIndexed { i, day ->
+                val k = day.toString()
+                val v = vals[i]
+                val isToday = k == today
+                val picked = sel == i
+                val base = when {
+                    v == 0 -> p.border
+                    barColor != null -> barColor
+                    isToday -> p.accent
+                    else -> p.accentGlow
+                }
+                val fill = if (sel != null && !picked && v > 0) base.copy(alpha = 0.45f) else base
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (picked) p.accent.copy(alpha = 0.10f) else Color.Transparent)
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(if (v > 0) "$v" else "", color = if (picked) p.fg else p.muted, fontSize = 10.sp, modifier = Modifier.height(14.dp))
+                    Box(Modifier.width(26.dp).height(90.dp), contentAlignment = Alignment.BottomCenter) {
+                        val frac = (v / max).coerceIn(0f, 1f)
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (frac <= 0f) Modifier.height(2.dp) else Modifier.fillMaxHeight(frac))
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
+                                .background(fill)
+                        )
+                    }
+                    // date + month, no weekday
+                    Text(
+                        "${day.dayOfMonth}", color = if (isToday || picked) p.fg else p.muted, fontSize = 12.sp,
+                        fontWeight = if (isToday || picked) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
+                    )
+                    Text(thMonth(day), color = p.muted, fontSize = 9.sp, maxLines = 1)
+                }
             }
         }
     }
 }
-
 
 @Composable
 private fun SyncTab(vm: AppViewModel) {
