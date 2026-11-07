@@ -55,7 +55,9 @@ import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import com.titipong.dinofocus.AppData
 import com.titipong.dinofocus.AppViewModel
-import com.titipong.dinofocus.BACKUP_FILE
+import com.titipong.dinofocus.SYNC_FILE
+import com.titipong.dinofocus.dateOf
+import com.titipong.dinofocus.hhmm
 import com.titipong.dinofocus.Entry
 import com.titipong.dinofocus.NO_TAG
 import com.titipong.dinofocus.NO_TAG_COLOR
@@ -116,7 +118,7 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    listOf("today" to "วันนี้", "history" to "ย้อนหลัง", "backup" to "สำรอง").forEach { (id, label) ->
+                    listOf("today" to "วันนี้", "history" to "ย้อนหลัง", "sync" to "ซิงค์").forEach { (id, label) ->
                         val active = tab == id
                         Box(
                             Modifier
@@ -132,7 +134,7 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                 when (tab) {
                     "today" -> TodayTab(vm)
                     "history" -> HistoryTab(vm)
-                    else -> BackupTab(vm)
+                    else -> SyncTab(vm)
                 }
             }
         }
@@ -406,29 +408,26 @@ private fun WeekChart(
 
 
 @Composable
-private fun BackupTab(vm: AppViewModel) {
+private fun SyncTab(vm: AppViewModel) {
     val p = LocalPal.current
     val d = vm.data
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) vm.chooseBackupFolder(uri)
     }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.readImport(uri)
-    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item { SubTitle("ข้อมูลในเครื่องนี้") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatChip("${d.minutesOn(todayKey())}", "นาทีวันนี้", Modifier.weight(1f))
                 StatChip("${d.collection.count { !it.dead }}", "ไดโนเสาร์", Modifier.weight(1f))
-                StatChip("${d.collection.count { it.dead }}", "หลุมศพ", Modifier.weight(1f))
                 StatChip("${d.dailyWorkSec.values.sum() / 60}", "นาทีทั้งหมด", Modifier.weight(1f))
             }
         }
-        item { SubTitle("ส่งออกข้อมูล") }
+        item { SubTitle("ซิงค์หลายเครื่อง") }
         item {
             Text(
-                "บันทึกไดโนเสาร์ ประวัติเวลา tag และการตั้งค่าทั้งหมดเป็นไฟล์ $BACKUP_FILE ในโฟลเดอร์ที่เลือก " +
-                    "(เช่น Download หรือ Google Drive) ส่งออกซ้ำไปโฟลเดอร์เดิมจะบันทึกทับไฟล์เดิม",
+                "เลือกโฟลเดอร์เดียวกันในทุกเครื่อง (เช่นโฟลเดอร์ใน Google Drive) แล้วกดซิงค์ " +
+                    "รอบที่บันทึกในแต่ละเครื่องจะรวมกัน ไม่นับซ้ำ เช่น เครื่องนี้ 15 นาที อีกเครื่อง 20 นาที ซิงค์แล้วได้ 35 นาทีทั้งสองเครื่อง",
                 color = p.muted, fontSize = 12.sp,
             )
         }
@@ -444,11 +443,16 @@ private fun BackupTab(vm: AppViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("📁 ", fontSize = 14.sp)
-                Text(
-                    if (vm.backupFolder == null) "ยังไม่ได้เลือกโฟลเดอร์" else (name ?: "โฟลเดอร์ที่เลือกไว้"),
-                    color = if (vm.backupFolder == null) p.muted else p.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (vm.backupFolder == null) "ยังไม่ได้เลือกโฟลเดอร์" else (name ?: "โฟลเดอร์ที่เลือกไว้"),
+                        color = if (vm.backupFolder == null) p.muted else p.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    )
+                    if (vm.lastSync > 0) {
+                        val t = vm.lastSync
+                        Text("ซิงค์ล่าสุด ${thDayMonth(dateOf(t))} ${hhmm(t)}", color = p.muted, fontSize = 11.sp)
+                    }
+                }
                 if (vm.backupFolder != null) {
                     Text(
                         "เปลี่ยน", color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -458,51 +462,24 @@ private fun BackupTab(vm: AppViewModel) {
             }
         }
         item {
-            BigButton(if (vm.backupFolder == null) "เลือกโฟลเดอร์และส่งออก…" else "ส่งออก (บันทึกทับ)", BtnStyle.Primary, Modifier.fillMaxWidth(), small = true) {
-                if (!vm.exportToFolder()) folderLauncher.launch(null)
+            BigButton(
+                when {
+                    vm.syncing -> "กำลังซิงค์…"
+                    vm.backupFolder == null -> "เลือกโฟลเดอร์และซิงค์…"
+                    else -> "🔄 ซิงค์ตอนนี้"
+                },
+                BtnStyle.Primary, Modifier.fillMaxWidth().alpha(if (vm.syncing) 0.6f else 1f), small = true,
+            ) {
+                if (!vm.syncing && !vm.syncNow()) folderLauncher.launch(null)
             }
         }
-        item { SubTitle("นำเข้าข้อมูล") }
         item {
             Text(
-                "เลือกไฟล์สำรองของ DinoFocus ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด" +
-                    if (vm.inSession) " · จบรอบที่กำลังโฟกัสก่อนจึงจะนำเข้าได้" else "",
-                color = p.muted, fontSize = 12.sp,
+                "ไฟล์ที่ใช้ซิงค์ชื่อ $SYNC_FILE ในโฟลเดอร์นั้น ทุกครั้งที่ซิงค์จะบันทึกทับไฟล์เดิม " +
+                    "ไดโนเสาร์ตัวที่เลือก tag ที่เลือก และระยะเวลาที่ตั้งไว้ของแต่ละเครื่องจะไม่ถูกเปลี่ยน",
+                color = p.muted, fontSize = 11.sp,
             )
         }
-        item {
-            BigButton("เลือกไฟล์สำรอง…", BtnStyle.Cancel, Modifier.fillMaxWidth().alpha(if (vm.inSession) 0.45f else 1f), small = true) {
-                if (vm.inSession) vm.showToast("จบรอบที่กำลังโฟกัสก่อนจึงจะนำเข้าได้")
-                else importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"))
-            }
-        }
         item { Box(Modifier.height(8.dp)) }
-    }
-
-    vm.pendingImport?.let { incoming ->
-        androidx.compose.ui.window.Dialog(onDismissRequest = { vm.cancelImport() }) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(p.surface)
-                    .border(2.dp, p.accent, RoundedCornerShape(20.dp))
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("นำเข้าข้อมูล?", fontFamily = PixelFont, fontSize = 12.sp, color = p.accentGlow)
-                Text(
-                    "ไฟล์นี้มีไดโนเสาร์ ${incoming.collection.count { !it.dead }} ตัว หลุมศพ ${incoming.collection.count { it.dead }} " +
-                        "และเวลาเรียน ${incoming.dailyWorkSec.values.sum() / 60} นาที\n\n" +
-                        "ข้อมูลปัจจุบันในเครื่อง (${d.collection.size} รอบ) จะถูกแทนที่ทั้งหมด ควรส่งออกเก็บไว้ก่อน",
-                    color = p.fg, fontSize = 13.sp,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    BigButton("ยกเลิก", BtnStyle.Cancel, Modifier.weight(1f), small = true) { vm.cancelImport() }
-                    BigButton("นำเข้า", BtnStyle.Confirm, Modifier.weight(1f), small = true) { vm.confirmImport() }
-                }
-            }
-        }
     }
 }

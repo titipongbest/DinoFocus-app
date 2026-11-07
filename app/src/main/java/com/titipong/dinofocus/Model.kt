@@ -12,6 +12,7 @@ const val CANCEL_MS = 10_000L
 const val MAX_FOCUS_MS = 90 * 60_000L
 const val NO_TAG = "ไม่ระบุ"
 const val BACKUP_FILE = "DinoFocus-backup.json"
+const val SYNC_FILE = "DinoFocus-sync.json"
 const val NO_TAG_COLOR = 0xFF94A3B8
 
 val TAG_COLORS = listOf(
@@ -25,6 +26,7 @@ data class Tag(val name: String, val color: Long)
 /** One finished focus round. dead = the user gave up and the dino became a grave. */
 @Serializable
 data class Entry(
+    val id: String = "",
     val sp: String,
     val ts: Long,
     val workSec: Int = 0,
@@ -65,6 +67,22 @@ data class AppData(
         if (name == null || name == NO_TAG) NO_TAG_COLOR else tags.firstOrNull { it.name == name }?.color ?: NO_TAG_COLOR
     fun entriesOn(day: String) = collection.indices.filter { collection[it].day == day }
     fun minutesOn(day: String) = Math.round((dailyWorkSec[day] ?: 0) / 60.0).toInt()
+    /** Daily minutes, rounds, total and streak rebuilt from the rounds themselves (used after a sync merge). */
+    fun recomputed(): AppData {
+        val ws = HashMap<String, Int>()
+        val rounds = HashMap<String, Int>()
+        collection.forEach { e ->
+            ws[e.day] = (ws[e.day] ?: 0) + e.workSec
+            if (!e.dead) rounds[e.day] = (rounds[e.day] ?: 0) + 1
+        }
+        val last = rounds.keys.maxOrNull()
+        var streak = 0
+        if (last != null) {
+            var d = LocalDate.parse(last)
+            while (rounds.containsKey(d.toString())) { streak++; d = d.minusDays(1) }
+        }
+        return copy(dailyWorkSec = ws, dailyPomos = rounds, totalPomos = collection.count { !it.dead }, lastDay = last, streak = streak)
+    }
     fun roundsOn(day: String) = (dailyPomos[day] ?: 0).takeIf { it > 0 }
         ?: collection.count { it.day == day && !it.dead }
 }

@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -82,22 +84,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (!Dinos.exists(x.pet)) x = x.copy(pet = "rex")
         if (x.tag != null && x.tags.none { it.name == x.tag }) x = x.copy(tag = null)
         val wr = SliderCfg.range(MODE_WORK); val sr = SliderCfg.range(MODE_SHORT)
-        x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) })
+        // every round needs an id so syncing never counts it twice (old rounds get a stable one)
+        x = x.copy(collection = x.collection.filter { Dinos.exists(it.sp) }
+            .map { if (it.id.isBlank()) it.copy(id = "${it.ts}-${it.sp}-${it.workSec}") else it })
         return x.copy(workMin = x.workMin.coerceIn(wr), shortMin = x.shortMin.coerceIn(sr))
     }
 
-    // ── backup: export to / import from a file in a folder the user picks ──
-    /** Data waiting for the user to confirm an import (replaces everything). */
-    var pendingImport by mutableStateOf<AppData?>(null)
-        private set
-
-    /** Folder picked for backups (tree URI with a persisted permission). */
+    // ── sync: every device merges its rounds into one shared file in a folder they all use ──
+    /** Shared folder (tree URI with a persisted permission), e.g. a Google Drive folder. */
     var backupFolder by mutableStateOf(prefs.getString("backupTree", null)?.let { Uri.parse(it) })
         private set
     val backupFolderName: String?
         get() = backupFolder?.let { runCatching { DocumentFile.fromTreeUri(getApplication(), it)?.name }.getOrNull() }
+    var lastSync by mutableLongStateOf(prefs.getLong("lastSync", 0L))
+        private set
+    var syncing by mutableStateOf(false)
+        private set
 
-    /** Remember the folder, then export into it. */
+    /** Remember the folder, then sync with it. */
     fun chooseBackupFolder(tree: Uri) {
         val cr = getApplication<Application>().contentResolver
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -105,58 +109,83 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { cr.takePersistableUriPermission(tree, flags) }
         prefs.edit().putString("backupTree", tree.toString()).apply()
         backupFolder = tree
-        exportToFolder()
+        syncNow()
     }
 
     /**
-     * Writes DinoFocus-backup.json into the chosen folder. Exporting to the same folder again
-     * overwrites that file instead of creating a copy. Returns false when a folder must be picked.
+     * Reads DinoFocus-sync.json from the folder, merges its rounds with this device's rounds
+     * (each round has a unique id, so nothing is counted twice), recomputes the daily totals,
+     * and writes the merged result back. Returns false when a folder must be picked first.
      */
-    fun exportToFolder(): Boolean {
+    fun syncNow(): Boolean {
         val tree = backupFolder ?: return false
+        if (syncing) return true
         val app = getApplication<Application>()
-        val dir = DocumentFile.fromTreeUri(app, tree)
-        if (dir == null || !dir.canWrite()) {
-            prefs.edit().remove("backupTree").apply()
-            backupFolder = null
-            showToast("เข้าถึงโฟลเดอร์เดิมไม่ได้แล้ว เลือกโฟลเดอร์ใหม่")
-            return false
+        syncing = true
+        viewModelScope.launch {
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    val dir = DocumentFile.fromTreeUri(app, tree)
+                    if (dir == null || !dir.canWrite()) return@withContext SyncOutcome.NoAccess
+                    val remoteFile = dir.findFile(SYNC_FILE) ?: dir.findFile(BACKUP_FILE)
+                    val remote = remoteFile?.let { f ->
+                        app.contentResolver.openInputStream(f.uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                            ?.let { Backup.parse(it) } ?: return@withContext SyncOutcome.BadFile
+                    }
+                    SyncOutcome.Read(dir, remote)
+                }
+                when (outcome) {
+                    SyncOutcome.NoAccess -> {
+                        prefs.edit().remove("backupTree").apply()
+                        backupFolder = null
+                        showToast("เข้าถึงโฟลเดอร์เดิมไม่ได้แล้ว เลือกโฟลเดอร์ใหม่")
+                    }
+                    SyncOutcome.BadFile -> showToast("ไฟล์ $SYNC_FILE อ่านไม่ได้ ยังไม่ได้ซิงค์")
+                    is SyncOutcome.Read -> {
+                        val before = data.collection.size
+                        val remote = outcome.remote?.let { normalize(it) }
+                        update { merge(it, remote) }
+                        val added = data.collection.size - before
+                        val out = Backup(exportedAt = System.currentTimeMillis(), data = data.copy(session = Session(), mode = MODE_WORK))
+                        withContext(Dispatchers.IO) {
+                            val file = outcome.dir.findFile(SYNC_FILE) ?: outcome.dir.createFile("application/json", SYNC_FILE)
+                                ?: throw IllegalStateException()
+                            app.contentResolver.openOutputStream(file.uri, "wt")?.use {
+                                it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
+                            } ?: throw IllegalStateException()
+                        }
+                        todaySel = -1
+                        lastSync = System.currentTimeMillis()
+                        prefs.edit().putLong("lastSync", lastSync).apply()
+                        val today = todayKey()
+                        showToast(
+                            (if (added > 0) "ซิงค์แล้ว · ได้รอบจากเครื่องอื่น $added รอบ" else "ซิงค์แล้ว · ข้อมูลตรงกันแล้ว") +
+                                " · วันนี้รวม ${data.minutesOn(today)} นาที"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                showToast("ซิงค์ไม่สำเร็จ ลองใหม่อีกครั้ง")
+            } finally {
+                syncing = false
+            }
         }
-        val out = Backup(exportedAt = System.currentTimeMillis(), data = data.copy(session = Session(), mode = MODE_WORK))
-        return try {
-            val existing = dir.findFile(BACKUP_FILE)
-            val file = existing ?: dir.createFile("application/json", BACKUP_FILE) ?: throw IllegalStateException()
-            app.contentResolver.openOutputStream(file.uri, "wt")?.use {
-                it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
-            } ?: throw IllegalStateException()
-            showToast(if (existing != null) "บันทึกทับ $BACKUP_FILE แล้ว · ${data.collection.size} รอบ" else "สร้าง $BACKUP_FILE แล้ว · ${data.collection.size} รอบ")
-            true
-        } catch (e: Exception) {
-            showToast("ส่งออกไม่สำเร็จ ลองเลือกโฟลเดอร์อื่น")
-            true
-        }
+        return true
     }
 
-    fun readImport(uri: Uri) {
-        val parsed = try {
-            val text = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
-                ?: throw IllegalStateException()
-            Backup.parse(text)
-        } catch (e: Exception) {
-            null
-        }
-        if (parsed == null) showToast("ไฟล์นี้ไม่ใช่ข้อมูล DinoFocus") else pendingImport = normalize(parsed)
+    private sealed class SyncOutcome {
+        data object NoAccess : SyncOutcome()
+        data object BadFile : SyncOutcome()
+        class Read(val dir: DocumentFile, val remote: AppData?) : SyncOutcome()
     }
 
-    fun cancelImport() { pendingImport = null }
-
-    fun confirmImport() {
-        val d = pendingImport ?: return
-        pendingImport = null
-        Notifier.cancelSuccess(getApplication())
-        update { d.copy(session = Session(), mode = MODE_WORK) }
-        todaySel = -1
-        showToast("นำเข้าแล้ว · ${d.collection.size} รอบ")
+    /** Union of rounds by id; tags merged by name; this device keeps its own settings and running round. */
+    private fun merge(local: AppData, remote: AppData?): AppData {
+        if (remote == null) return local.recomputed()
+        val all = LinkedHashMap<String, Entry>()
+        (local.collection + remote.collection).forEach { all.putIfAbsent(it.id, it) }
+        val tags = local.tags + remote.tags.filter { r -> local.tags.none { it.name.equals(r.name, ignoreCase = true) } }
+        return local.copy(collection = all.values.sortedBy { it.ts }, tags = tags).recomputed()
     }
 
     private fun update(f: (AppData) -> AppData) {
@@ -298,7 +327,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val nowMs = System.currentTimeMillis()
         val today = dayKey(nowMs)
         update { d ->
-            val entry = Entry(sp = r.sp, ts = nowMs, workSec = r.workSec, targetMin = r.targetMin, tag = r.tag, dead = r.dead)
+            val entry = Entry(id = java.util.UUID.randomUUID().toString(), sp = r.sp, ts = nowMs, workSec = r.workSec, targetMin = r.targetMin, tag = r.tag, dead = r.dead)
             var n = d.copy(
                 collection = d.collection + entry,
                 dailyWorkSec = d.dailyWorkSec + (today to (d.dailyWorkSec[today] ?: 0) + r.workSec),
