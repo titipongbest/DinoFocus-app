@@ -14,4 +14,8 @@ GitHub Actions สร้าง APK ทุกครั้งที่ push ไป
 
 ในเครื่อง: เปิดโฟลเดอร์นี้ด้วย Android Studio หรือรัน `./gradlew assembleDebug` (JDK 17)
 
+เลขเวอร์ชันเพิ่มอัตโนมัติตามจำนวน commit (v1.N) และทุก build เซ็นด้วยคีย์เดียวกัน (`app/dinofocus.keystore`) ติดตั้งเวอร์ชันใหม่ทับของเดิมได้โดยข้อมูลไม่หาย
+
+by NorthXbar
+
 ฟอนต์ Press Start 2P ใช้สัญญาอนุญาต SIL Open Font License

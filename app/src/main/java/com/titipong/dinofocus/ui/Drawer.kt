@@ -131,11 +131,14 @@ fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
                         ) { Text(label, color = if (active) Color.White else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
                     }
                 }
-                when (tab) {
-                    "today" -> TodayTab(vm)
-                    "history" -> HistoryTab(vm)
-                    else -> SyncTab(vm)
+                Box(Modifier.weight(1f)) {
+                    when (tab) {
+                        "today" -> TodayTab(vm)
+                        "history" -> HistoryTab(vm)
+                        else -> SyncTab(vm)
+                    }
                 }
+                CreditLine(Modifier.padding(bottom = 10.dp))
             }
         }
     }

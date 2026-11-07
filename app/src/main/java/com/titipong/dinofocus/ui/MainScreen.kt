@@ -99,6 +99,7 @@ fun MainScreen(vm: AppViewModel) {
             Header(onMenu = { drawerOpen = true })
             ModeTabs(vm)
             TimerCard(vm, onPet = { petPicker = true }, onTag = { tagDialog = true })
+            CreditLine()
         }
 
         Drawer(vm, open = drawerOpen, onClose = { drawerOpen = false })
@@ -416,4 +417,15 @@ private fun askBatteryOnce(ctx: android.content.Context) {
         )
     } catch (_: Exception) {
     }
+}
+
+/** "DinoFocus v1.N · by NorthXbar" — the version comes from the build (commit count). */
+@Composable
+fun CreditLine(modifier: Modifier = Modifier) {
+    val p = LocalPal.current
+    Text(
+        "DinoFocus v${com.titipong.dinofocus.BuildConfig.VERSION_NAME} · by NorthXbar",
+        color = p.muted, fontSize = 11.sp, textAlign = TextAlign.Center,
+        modifier = modifier.fillMaxWidth().alpha(0.8f),
+    )
 }

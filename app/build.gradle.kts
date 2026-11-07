@@ -5,6 +5,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Version follows the number of commits: every update pushed to main bumps it (1.1, 1.2, …)
+val commitCount: Int = try {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+} catch (e: Exception) {
+    1
+}
+
 android {
     namespace = "com.titipong.dinofocus"
     compileSdk = 34
@@ -13,8 +21,18 @@ android {
         applicationId = "com.titipong.dinofocus"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = commitCount
+        versionName = "1.$commitCount"
+    }
+
+    // One fixed signing key so a newer APK installs over the old one and keeps the data
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("dinofocus.keystore")
+            storePassword = "dinofocus"
+            keyAlias = "dinofocus"
+            keyPassword = "dinofocus"
+        }
     }
 
     buildTypes {
@@ -31,6 +49,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

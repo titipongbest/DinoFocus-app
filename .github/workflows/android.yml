@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: the version number is the commit count
 
       - uses: actions/setup-java@v4
         with:
@@ -19,12 +21,18 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Version
+        run: echo "APP_VERSION=1.$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
+
+      - name: Name APK with version
+        run: mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/DinoFocus-v${APP_VERSION}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DinoFocus-debug-apk
+          name: DinoFocus-v${{ env.APP_VERSION }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
