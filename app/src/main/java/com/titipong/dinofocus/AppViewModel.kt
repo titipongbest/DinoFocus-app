@@ -108,19 +108,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (el >= targetMs && !data.session.notified) {
                 update { it.copy(session = it.session.copy(notified = true)) }
                 chime()
+                Notifier.cancelAlarm(getApplication())
+                Notifier.showSuccess(getApplication(), Dinos.get(data.pet).name, data.workMin)
             }
         } else if (el >= targetMs) {
             chime()
             showToast("พักเสร็จแล้ว! กลับมาโฟกัสกัน 💪")
+            val min = data.shortMin
             switchMode(MODE_WORK)
+            Notifier.showBreakDone(getApplication(), min)
         }
     }
 
     private fun start() {
         now = System.currentTimeMillis()
         update { it.copy(session = it.session.copy(runStart = now)) }
+        val at = now + (targetMs - data.session.accumulated)
         if (data.mode == MODE_WORK && !data.session.notified) {
-            Notifier.scheduleSuccess(getApplication(), now + (targetMs - data.session.accumulated), Dinos.get(data.pet).name, data.workMin)
+            Notifier.scheduleSuccess(getApplication(), at, Dinos.get(data.pet).name, data.workMin)
+        } else if (data.mode == MODE_SHORT) {
+            Notifier.scheduleBreakDone(getApplication(), at, data.shortMin)
         }
     }
 

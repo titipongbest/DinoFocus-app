@@ -131,8 +131,8 @@ class TimerService : Service() {
             }
         } else {
             if (now < target) {
-                b.setContentTitle("☕ พักสั้น")
-                    .setContentText("กลับมาโฟกัสเวลา ${hhmm(target)}")
+                b.setContentTitle("☕ พักสั้นอยู่")
+                    .setContentText("พักให้สบาย! กลับมาโฟกัสเวลา ${hhmm(target)}")
                     .setUsesChronometer(true).setChronometerCountDown(true).setWhen(target).setShowWhen(true)
             } else {
                 b.setContentTitle("พักเสร็จแล้ว!").setContentText("กลับมาโฟกัสกัน 💪")
@@ -149,9 +149,10 @@ class BootReceiver : BroadcastReceiver() {
         val d = Store.load(ctx)
         val s = d.session
         val runStart = s.runStart ?: return
-        if (d.mode == MODE_WORK && !s.notified) {
-            val target = runStart - s.accumulated + d.workMin * 60_000L
-            if (target > System.currentTimeMillis()) Notifier.scheduleSuccess(ctx, target, Dinos.get(d.pet).name, d.workMin)
+        val target = runStart - s.accumulated + d.minutesFor(d.mode) * 60_000L
+        if (target > System.currentTimeMillis()) {
+            if (d.mode == MODE_WORK && !s.notified) Notifier.scheduleSuccess(ctx, target, Dinos.get(d.pet).name, d.workMin)
+            else if (d.mode == MODE_SHORT) Notifier.scheduleBreakDone(ctx, target, d.shortMin)
         }
         TimerService.sync(ctx, d)
     }

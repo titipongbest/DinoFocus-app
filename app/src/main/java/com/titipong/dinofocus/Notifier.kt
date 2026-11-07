@@ -20,24 +20,49 @@ object Notifier {
     private const val REQ = 42
     private const val NOTIF_ID = 1
 
-    private fun alarmIntent(ctx: Context, name: String = "", minutes: Int = 0): PendingIntent =
+    private fun alarmIntent(ctx: Context, kind: String = "", name: String = "", minutes: Int = 0): PendingIntent =
         PendingIntent.getBroadcast(
             ctx, REQ,
-            Intent(ctx, SuccessReceiver::class.java).putExtra("name", name).putExtra("min", minutes),
+            Intent(ctx, SuccessReceiver::class.java).putExtra("kind", kind).putExtra("name", name).putExtra("min", minutes),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    fun scheduleSuccess(ctx: Context, atMs: Long, dinoName: String, minutes: Int) {
+    private fun schedule(ctx: Context, atMs: Long, pi: PendingIntent) {
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, alarmIntent(ctx, dinoName, minutes))
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi)
     }
 
-    fun cancelSuccess(ctx: Context) {
+    /** Alert when the focus target is reached. */
+    fun scheduleSuccess(ctx: Context, atMs: Long, dinoName: String, minutes: Int) =
+        schedule(ctx, atMs, alarmIntent(ctx, "focus", dinoName, minutes))
+
+    /** Alert when the short break is over. */
+    fun scheduleBreakDone(ctx: Context, atMs: Long, minutes: Int) =
+        schedule(ctx, atMs, alarmIntent(ctx, "break", "", minutes))
+
+    fun cancelAlarm(ctx: Context) {
         ctx.getSystemService(AlarmManager::class.java)?.cancel(alarmIntent(ctx))
+    }
+
+    /** Cancel the pending alarm and remove an alert that is showing. */
+    fun cancelSuccess(ctx: Context) {
+        cancelAlarm(ctx)
         NotificationManagerCompat.from(ctx).cancel(NOTIF_ID)
     }
 
-    fun show(ctx: Context, dinoName: String, minutes: Int) {
+    fun showBreakDone(ctx: Context, minutes: Int) = post(
+        ctx,
+        "พักเสร็จแล้ว! ☕",
+        "ครบ $minutes นาที ได้เวลากลับมาโฟกัส กด Start Focus เพื่อเริ่มรอบใหม่",
+    )
+
+    fun showSuccess(ctx: Context, dinoName: String, minutes: Int) = post(
+        ctx,
+        "ไดโนเสาร์ใหม่สำเร็จ! 🦖",
+        "$dinoName ฟักแล้ว · ครบ $minutes นาที\nนับเวลาต่อได้ถึง 90 นาที กดเสร็จสิ้นเพื่อบันทึก",
+    )
+
+    private fun post(ctx: Context, title: String, text: String) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -54,9 +79,9 @@ object Notifier {
         )
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_dino)
-            .setContentTitle("ไดโนเสาร์ใหม่สำเร็จ! 🦖")
-            .setContentText("$dinoName ฟักแล้ว · ครบ $minutes นาที นับเวลาต่อได้ถึง 90 นาที กดเสร็จสิ้นเพื่อบันทึก")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$dinoName ฟักแล้ว · ครบ $minutes นาที\nนับเวลาต่อได้ถึง 90 นาที กดเสร็จสิ้นเพื่อบันทึก"))
+            .setContentTitle(title)
+            .setContentText(text.replace("\n", " "))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
@@ -68,6 +93,8 @@ object Notifier {
 
 class SuccessReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        Notifier.show(ctx, intent.getStringExtra("name") ?: "ไดโนเสาร์", intent.getIntExtra("min", 0))
+        val min = intent.getIntExtra("min", 0)
+        if (intent.getStringExtra("kind") == "break") Notifier.showBreakDone(ctx, min)
+        else Notifier.showSuccess(ctx, intent.getStringExtra("name") ?: "ไดโนเสาร์", min)
     }
 }
