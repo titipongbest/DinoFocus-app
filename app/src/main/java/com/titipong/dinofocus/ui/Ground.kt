@@ -218,9 +218,16 @@ private fun GroundInfo(data: AppData, keys: List<Int>, sel: Int, emptyText: Stri
             keys.isEmpty() -> Text(emptyText, color = p.muted, fontSize = 13.sp)
             d == null -> Text(
                 buildAnnotatedString {
+                    // graves are not living dinos: count them separately
+                    val dead = keys.count { data.collection.getOrNull(it)?.dead == true }
                     append("ไดโนเสาร์ ")
-                    withStyle(SpanStyle(color = p.accentGlow, fontWeight = FontWeight.Bold)) { append("${keys.size}") }
-                    append(" ตัว · แตะที่ตัวเพื่อดูประวัติ")
+                    withStyle(SpanStyle(color = p.accentGlow, fontWeight = FontWeight.Bold)) { append("${keys.size - dead}") }
+                    append(" ตัว")
+                    if (dead > 0) {
+                        append(" · หลุมศพ ")
+                        withStyle(SpanStyle(color = p.fg, fontWeight = FontWeight.Bold)) { append("$dead") }
+                    }
+                    append(" · แตะที่ตัวเพื่อดูประวัติ")
                 },
                 color = p.muted, fontSize = 13.sp,
             )
