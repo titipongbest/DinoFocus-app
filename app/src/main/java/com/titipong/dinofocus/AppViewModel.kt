@@ -53,6 +53,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var armJob: Job? = null
 
     init {
+        TimerService.sync(app, data)
         val s = data.session
         if (s.runStart == null && s.accumulated > 0) {
             update { it.copy(session = s.copy(runStart = System.currentTimeMillis())) }
@@ -80,8 +81,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun update(f: (AppData) -> AppData) {
+        val before = data
         data = f(data)
-        prefs.edit().putString("data", json.encodeToString(AppData.serializer(), data)).apply()
+        // commit() so the foreground service reads the new state right away
+        prefs.edit().putString("data", json.encodeToString(AppData.serializer(), data)).commit()
+        if (before.session != data.session || before.mode != data.mode) TimerService.sync(getApplication(), data)
     }
 
     // ── time ────────────────────────────────────────────────────────────

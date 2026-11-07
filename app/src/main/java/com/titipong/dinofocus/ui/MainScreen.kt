@@ -269,12 +269,15 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit) {
                 else -> Triple("ยอมแพ้", BtnStyle.GiveUp, "อดทนไว้ $name กำลังรออยู่")
             }
             val ctx = LocalContext.current
-            val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+            val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { askBatteryOnce(ctx) }
             BigButton(label, style, Modifier.widthIn(min = 220.dp)) {
                 if (over) { vm.finishSuccess(goBreak = false); return@BigButton }
-                if (!started && Build.VERSION.SDK_INT >= 33 &&
-                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                if (!started) {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    else askBatteryOnce(ctx)
+                }
                 vm.onFocusButton()
             }
             Text(hint, color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.offset(y = (-10).dp))
@@ -395,5 +398,22 @@ private fun ToastHost(vm: AppViewModel, modifier: Modifier) {
                 .border(1.dp, p.accent, RoundedCornerShape(12.dp))
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) { Text(text, color = p.fg, fontSize = 13.sp, textAlign = TextAlign.Center) }
+    }
+}
+
+/** Ask once to be excluded from battery optimisation so the timer is not stopped in the background. */
+@android.annotation.SuppressLint("BatteryLife")
+private fun askBatteryOnce(ctx: android.content.Context) {
+    val prefs = ctx.getSharedPreferences("dinofocus_ui", android.content.Context.MODE_PRIVATE)
+    if (prefs.getBoolean("askedBattery", false)) return
+    val pm = ctx.getSystemService(android.os.PowerManager::class.java) ?: return
+    if (pm.isIgnoringBatteryOptimizations(ctx.packageName)) return
+    prefs.edit().putBoolean("askedBattery", true).apply()
+    try {
+        ctx.startActivity(
+            android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                .setData(android.net.Uri.parse("package:" + ctx.packageName))
+        )
+    } catch (_: Exception) {
     }
 }
