@@ -273,9 +273,11 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     val barColor = when (histTag) { null -> null; NO_TAG -> Color(NO_TAG_COLOR); else -> Color(d.tagColor(histTag)) }
 
     // items before the day list: switch, [tag chips], week nav, chart, breakdown, [all-time title + totals], "ทุกวัน"
-    // items before the day list: tag chips, all-time line, week nav, chart, "รายวัน"
+    // items before the day list: tag chips, all-time line, week nav, chart, [chart ground], "รายวัน"
     val dayListOffset = 5
     var chartSel by remember(weekOffset) { mutableStateOf<Int?>(null) }
+    var chartGroundSel by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(chartSel) { chartGroundSel = -1 }
 
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         if (byTag) item {
@@ -324,8 +326,14 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 val idx = dayKeys.indexOf(k)
                 if (idx >= 0) {
                     openDay = k
-                    scope.launch { listState.animateScrollToItem(dayListOffset + idx) }
+                    scope.launch { listState.animateScrollToItem(dayListOffset + (if (chartSel != null) 1 else 0) + idx) }
                 }
+            }
+        }
+        // tapping / dragging on the chart shows that day's dino ground right here
+        chartSel?.let { i ->
+            item(key = "chart-ground") {
+                GroundView(d, indicesOn(days[i].toString()), chartGroundSel, { chartGroundSel = it }, "วันที่เลือกไม่ได้รับไดโนเสาร์")
             }
         }
         if (!byTag) item {
@@ -473,12 +481,6 @@ private fun WeekChart(
                 }
                 Text("${vals[sel]}", color = barColor ?: p.accentGlow, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-                if (canOpen(k)) {
-                    Text(
-                        "ดู ›", color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 10.dp).clip(RoundedCornerShape(6.dp)).clickable { onOpen(k) }.padding(4.dp),
-                    )
-                }
             }
         }
         Row(
