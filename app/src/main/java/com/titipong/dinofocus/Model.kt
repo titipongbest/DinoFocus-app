@@ -11,6 +11,7 @@ const val MODE_SHORT = "short"
 const val CANCEL_MS = 10_000L
 const val MAX_FOCUS_MS = 90 * 60_000L
 const val NO_TAG = "ไม่ระบุ"
+const val BACKUP_FILE = "DinoFocus-backup.json"
 const val NO_TAG_COLOR = 0xFF94A3B8
 
 val TAG_COLORS = listOf(

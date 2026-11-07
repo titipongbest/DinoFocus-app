@@ -2,7 +2,9 @@ package com.titipong.dinofocus
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -89,15 +91,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var pendingImport by mutableStateOf<AppData?>(null)
         private set
 
-    fun exportTo(uri: Uri) {
+    /** Folder picked for backups (tree URI with a persisted permission). */
+    var backupFolder by mutableStateOf(prefs.getString("backupTree", null)?.let { Uri.parse(it) })
+        private set
+    val backupFolderName: String?
+        get() = backupFolder?.let { runCatching { DocumentFile.fromTreeUri(getApplication(), it)?.name }.getOrNull() }
+
+    /** Remember the folder, then export into it. */
+    fun setBackupFolder(tree: Uri) {
+        val cr = getApplication<Application>().contentResolver
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        backupFolder?.takeIf { it != tree }?.let { old -> runCatching { cr.releasePersistableUriPermission(old, flags) } }
+        runCatching { cr.takePersistableUriPermission(tree, flags) }
+        prefs.edit().putString("backupTree", tree.toString()).apply()
+        backupFolder = tree
+        exportToFolder()
+    }
+
+    /**
+     * Writes DinoFocus-backup.json into the chosen folder. Exporting to the same folder again
+     * overwrites that file instead of creating a copy. Returns false when a folder must be picked.
+     */
+    fun exportToFolder(): Boolean {
+        val tree = backupFolder ?: return false
+        val app = getApplication<Application>()
+        val dir = DocumentFile.fromTreeUri(app, tree)
+        if (dir == null || !dir.canWrite()) {
+            prefs.edit().remove("backupTree").apply()
+            backupFolder = null
+            showToast("เข้าถึงโฟลเดอร์เดิมไม่ได้แล้ว เลือกโฟลเดอร์ใหม่")
+            return false
+        }
         val out = Backup(exportedAt = System.currentTimeMillis(), data = data.copy(session = Session(), mode = MODE_WORK))
-        try {
-            getApplication<Application>().contentResolver.openOutputStream(uri, "wt")?.use {
+        return try {
+            val existing = dir.findFile(BACKUP_FILE)
+            val file = existing ?: dir.createFile("application/json", BACKUP_FILE) ?: throw IllegalStateException()
+            app.contentResolver.openOutputStream(file.uri, "wt")?.use {
                 it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
             } ?: throw IllegalStateException()
-            showToast("ส่งออกแล้ว · ${data.collection.size} รอบ")
+            showToast(if (existing != null) "บันทึกทับ $BACKUP_FILE แล้ว · ${data.collection.size} รอบ" else "สร้าง $BACKUP_FILE แล้ว · ${data.collection.size} รอบ")
+            true
         } catch (e: Exception) {
             showToast("ส่งออกไม่สำเร็จ ลองเลือกโฟลเดอร์อื่น")
+            true
         }
     }
 

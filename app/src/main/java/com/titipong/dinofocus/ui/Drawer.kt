@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import com.titipong.dinofocus.AppData
 import com.titipong.dinofocus.AppViewModel
+import com.titipong.dinofocus.BACKUP_FILE
 import com.titipong.dinofocus.Entry
 import com.titipong.dinofocus.NO_TAG
 import com.titipong.dinofocus.NO_TAG_COLOR
@@ -408,8 +409,8 @@ private fun WeekChart(
 private fun BackupTab(vm: AppViewModel) {
     val p = LocalPal.current
     val d = vm.data
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) vm.exportTo(uri)
+    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) vm.setBackupFolder(uri)
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.readImport(uri)
@@ -426,13 +427,39 @@ private fun BackupTab(vm: AppViewModel) {
         item { SubTitle("ส่งออกข้อมูล") }
         item {
             Text(
-                "บันทึกไดโนเสาร์ ประวัติเวลา tag และการตั้งค่าทั้งหมดเป็นไฟล์ .json เลือกโฟลเดอร์ปลายทางได้ เช่น Download หรือ Google Drive",
+                "บันทึกไดโนเสาร์ ประวัติเวลา tag และการตั้งค่าทั้งหมดเป็นไฟล์ $BACKUP_FILE ในโฟลเดอร์ที่เลือก " +
+                    "(เช่น Download หรือ Google Drive) ส่งออกซ้ำไปโฟลเดอร์เดิมจะบันทึกทับไฟล์เดิม",
                 color = p.muted, fontSize = 12.sp,
             )
         }
         item {
-            BigButton("ส่งออกไปยังโฟลเดอร์…", BtnStyle.Primary, Modifier.fillMaxWidth(), small = true) {
-                exportLauncher.launch("DinoFocus-backup-${java.time.LocalDate.now()}.json")
+            val name = vm.backupFolderName
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(p.surface2)
+                    .border(1.dp, p.border, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("📁 ", fontSize = 14.sp)
+                Text(
+                    if (vm.backupFolder == null) "ยังไม่ได้เลือกโฟลเดอร์" else (name ?: "โฟลเดอร์ที่เลือกไว้"),
+                    color = if (vm.backupFolder == null) p.muted else p.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (vm.backupFolder != null) {
+                    Text(
+                        "เปลี่ยน", color = p.accentGlow, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { folderLauncher.launch(null) }.padding(4.dp),
+                    )
+                }
+            }
+        }
+        item {
+            BigButton(if (vm.backupFolder == null) "เลือกโฟลเดอร์และส่งออก…" else "ส่งออก (บันทึกทับ)", BtnStyle.Primary, Modifier.fillMaxWidth(), small = true) {
+                if (!vm.exportToFolder()) folderLauncher.launch(null)
             }
         }
         item { SubTitle("นำเข้าข้อมูล") }
