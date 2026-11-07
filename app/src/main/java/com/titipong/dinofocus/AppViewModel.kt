@@ -100,6 +100,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var syncing by mutableStateOf(false)
         private set
+    /** What the shared file held after the last sync (shown in the sync tab to check both phones match). */
+    var syncInfo by mutableStateOf(prefs.getString("syncInfo", null))
+        private set
 
     /** Remember the folder, then sync with it. */
     fun chooseBackupFolder(tree: Uri) {
@@ -127,12 +130,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val outcome = withContext(Dispatchers.IO) {
                     val dir = DocumentFile.fromTreeUri(app, tree)
                     if (dir == null || !dir.canWrite()) return@withContext SyncOutcome.NoAccess
-                    val remoteFile = dir.findFile(SYNC_FILE) ?: dir.findFile(BACKUP_FILE)
-                    val remote = remoteFile?.let { f ->
-                        app.contentResolver.openInputStream(f.uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
-                            ?.let { Backup.parse(it) } ?: return@withContext SyncOutcome.BadFile
+                    // Cloud folders (Google Drive) can end up with copies such as "DinoFocus-sync (1).json"
+                    // when two phones write at once: read every copy and merge them all.
+                    val files = dir.listFiles().filter { f ->
+                        val n = f.name ?: return@filter false
+                        f.isFile && (n.startsWith("DinoFocus-sync") || n == BACKUP_FILE) && n.endsWith(".json")
                     }
-                    SyncOutcome.Read(dir, remote)
+                    var remote: AppData? = null
+                    var readable = 0
+                    files.forEach { f ->
+                        val parsed = runCatching {
+                            app.contentResolver.openInputStream(f.uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                                ?.let { Backup.parse(it) }
+                        }.getOrNull()
+                        if (parsed != null) {
+                            readable++
+                            remote = remote?.let { mergeData(it, parsed) } ?: parsed
+                        }
+                    }
+                    if (files.isNotEmpty() && readable == 0) return@withContext SyncOutcome.BadFile
+                    SyncOutcome.Read(dir, remote, files)
                 }
                 when (outcome) {
                     SyncOutcome.NoAccess -> {
@@ -143,23 +160,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     SyncOutcome.BadFile -> showToast("ไฟล์ $SYNC_FILE อ่านไม่ได้ ยังไม่ได้ซิงค์")
                     is SyncOutcome.Read -> {
                         val before = data.collection.size
+                        val tagsBefore = data.tags.map { it.name.lowercase() }.toSet()
                         val remote = outcome.remote?.let { normalize(it) }
                         update { merge(it, remote) }
                         val added = data.collection.size - before
+                        val newTags = data.tags.count { it.name.lowercase() !in tagsBefore }
                         val out = Backup(exportedAt = System.currentTimeMillis(), data = data.copy(session = Session(), mode = MODE_WORK))
                         withContext(Dispatchers.IO) {
-                            val file = outcome.dir.findFile(SYNC_FILE) ?: outcome.dir.createFile("application/json", SYNC_FILE)
-                                ?: throw IllegalStateException()
+                            val syncFiles = outcome.files.filter { it.name?.startsWith("DinoFocus-sync") == true }
+                            val file = syncFiles.firstOrNull { it.name == SYNC_FILE } ?: syncFiles.firstOrNull()
+                                ?: outcome.dir.createFile("application/json", SYNC_FILE) ?: throw IllegalStateException()
                             app.contentResolver.openOutputStream(file.uri, "wt")?.use {
                                 it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
                             } ?: throw IllegalStateException()
+                            // extra copies are merged in already: remove them so every phone uses one file
+                            syncFiles.filter { it.uri != file.uri }.forEach { runCatching { it.delete() } }
                         }
+                        syncInfo = "ไฟล์ซิงค์มี ${out.data.collection.size} รอบ · tag ${out.data.tags.size} อัน (${out.data.tags.joinToString { it.name }})" +
+                            if (outcome.files.size > 1) " · รวมจาก ${outcome.files.size} ไฟล์" else ""
+                        prefs.edit().putString("syncInfo", syncInfo).apply()
                         todaySel = -1
                         lastSync = System.currentTimeMillis()
                         prefs.edit().putLong("lastSync", lastSync).apply()
                         val today = todayKey()
                         showToast(
                             (if (added > 0) "ซิงค์แล้ว · ได้รอบจากเครื่องอื่น $added รอบ" else "ซิงค์แล้ว · ข้อมูลตรงกันแล้ว") +
+                                (if (newTags > 0) " · tag ใหม่ $newTags อัน" else "") +
                                 " · วันนี้รวม ${data.minutesOn(today)} นาที"
                         )
                     }
@@ -176,7 +202,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private sealed class SyncOutcome {
         data object NoAccess : SyncOutcome()
         data object BadFile : SyncOutcome()
-        class Read(val dir: DocumentFile, val remote: AppData?) : SyncOutcome()
+        class Read(val dir: DocumentFile, val remote: AppData?, val files: List<DocumentFile>) : SyncOutcome()
     }
 
     /** Union of rounds by id; tags merged by name; this device keeps its own settings and running round. */

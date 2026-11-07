@@ -590,6 +590,7 @@ private fun SyncTab(vm: AppViewModel) {
                         val t = vm.lastSync
                         Text("ซิงค์ล่าสุด ${thDayMonth(dateOf(t))} ${hhmm(t)}", color = p.muted, fontSize = 11.sp)
                     }
+                    vm.syncInfo?.let { Text(it, color = p.muted, fontSize = 11.sp) }
                 }
                 if (vm.backupFolder != null) {
                     Text(
