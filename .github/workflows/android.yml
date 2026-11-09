@@ -3,8 +3,12 @@ name: Android build
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write   # lets a version tag publish a GitHub Release
 
 jobs:
   build:
@@ -55,3 +59,15 @@ jobs:
           name: DinoFocus-v${{ env.APP_VERSION }}
           path: out/*.apk
           if-no-files-found: error
+
+      - name: Publish release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DinoFocus ${{ github.ref_name }}
+          files: out/*.apk
+          body: |
+            DinoFocus ${{ github.ref_name }} · by NorthXbar
+
+            ติดตั้ง: ดาวน์โหลดไฟล์ .apk ด้านล่างบนมือถือ แล้วเปิดติดตั้ง (อนุญาตติดตั้งจากแหล่งที่ไม่รู้จักถ้าระบบถาม)
+            ติดตั้งทับเวอร์ชันก่อนหน้าได้ ข้อมูลไม่หาย
