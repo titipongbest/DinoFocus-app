@@ -60,14 +60,18 @@ jobs:
           path: out/*.apk
           if-no-files-found: error
 
-      - name: Publish release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # A release is published for a version tag, or for a push to main whose commit message has "[release]"
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2
         with:
-          name: DinoFocus ${{ github.ref_name }}
+          tag_name: v${{ env.APP_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: DinoFocus v${{ env.APP_VERSION }}
+          make_latest: true
           files: out/*.apk
           body: |
-            DinoFocus ${{ github.ref_name }} · by NorthXbar
+            DinoFocus v${{ env.APP_VERSION }} · by NorthXbar
 
             ติดตั้ง: ดาวน์โหลดไฟล์ .apk ด้านล่างบนมือถือ แล้วเปิดติดตั้ง (อนุญาตติดตั้งจากแหล่งที่ไม่รู้จักถ้าระบบถาม)
             ติดตั้งทับเวอร์ชันก่อนหน้าได้ ข้อมูลไม่หาย
