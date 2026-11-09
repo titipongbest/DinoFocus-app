@@ -141,12 +141,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val outcome = withContext(Dispatchers.IO) {
-                    val dir = DocumentFile.fromTreeUri(app, tree)
-                    if (dir == null || !dir.canWrite()) return@withContext SyncOutcome.NoAccess
-                    val files = dir.listFiles().filter { f ->
+                    val root = DocumentFile.fromTreeUri(app, tree)
+                    if (root == null || !root.canWrite()) return@withContext SyncOutcome.NoAccess
+                    // all phones keep their files together in a "DinoFocus" folder inside the chosen folder
+                    val rootList = root.listFiles()
+                    val dir = rootList.firstOrNull { it.isDirectory && it.name == SYNC_DIR }
+                        ?: root.createDirectory(SYNC_DIR) ?: return@withContext SyncOutcome.NoAccess
+                    fun syncFiles(list: Array<DocumentFile>) = list.filter { f ->
                         val n = f.name ?: return@filter false
                         f.isFile && n.endsWith(".json") && (n.startsWith("DinoFocus-sync") || n == BACKUP_FILE)
                     }
+                    // files in the chosen folder itself are from before the sub-folder: read them too
+                    val files = syncFiles(dir.listFiles()) + syncFiles(rootList)
                     var remote: AppData? = null
                     val seen = ArrayList<Pair<String, Long>>()
                     files.forEach { f ->
@@ -175,13 +181,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val stamp = System.currentTimeMillis()
                         val out = Backup(exportedAt = stamp, device = deviceName, data = data.copy(session = Session(), mode = MODE_WORK))
                         withContext(Dispatchers.IO) {
-                            val mine = outcome.files.filter { it.name == ownFile }
+                            val mine = outcome.files.filter { it.name == ownFile && it.parentFile?.uri == outcome.dir.uri }
                             val file = mine.firstOrNull()
                                 ?: outcome.dir.createFile("application/json", ownFile) ?: throw IllegalStateException()
                             app.contentResolver.openOutputStream(file.uri, "wt")?.use {
                                 it.write(Backup.json.encodeToString(Backup.serializer(), out).toByteArray(Charsets.UTF_8))
                             } ?: throw IllegalStateException()
-                            // duplicates of this phone's file and the old shared file are merged in already
+                            // duplicates of this phone's file (also its old copy outside the folder) and the
+                            // old shared file are merged in already
                             outcome.files.filter { f -> f.uri != file.uri && (f.name == ownFile || isLegacyShared(f.name ?: "")) }
                                 .forEach { runCatching { it.delete() } }
                         }
