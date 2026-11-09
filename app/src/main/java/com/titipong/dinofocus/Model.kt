@@ -13,7 +13,8 @@ const val MAX_FOCUS_MS = 90 * 60_000L
 const val NO_TAG = "ไม่ระบุ"
 const val BACKUP_FILE = "DinoFocus-backup.json"
 const val SYNC_FILE = "DinoFocus-sync.json"
-const val SYNC_DIR = "DinoFocus"
+const val SYNC_DIR = "DinoFocus-backup"
+const val OLD_SYNC_DIR = "DinoFocus"
 const val NO_TAG_COLOR = 0xFF94A3B8
 
 val TAG_COLORS = listOf(

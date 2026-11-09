@@ -143,7 +143,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val outcome = withContext(Dispatchers.IO) {
                     val root = DocumentFile.fromTreeUri(app, tree)
                     if (root == null || !root.canWrite()) return@withContext SyncOutcome.NoAccess
-                    // all phones keep their files together in a "DinoFocus" folder inside the chosen folder
+                    // all phones keep their files together in a "DinoFocus-backup" folder inside the chosen folder
                     val rootList = root.listFiles()
                     val dir = rootList.firstOrNull { it.isDirectory && it.name == SYNC_DIR }
                         ?: root.createDirectory(SYNC_DIR) ?: return@withContext SyncOutcome.NoAccess
@@ -151,8 +151,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val n = f.name ?: return@filter false
                         f.isFile && n.endsWith(".json") && (n.startsWith("DinoFocus-sync") || n == BACKUP_FILE)
                     }
-                    // files in the chosen folder itself are from before the sub-folder: read them too
-                    val files = syncFiles(dir.listFiles()) + syncFiles(rootList)
+                    // files in the chosen folder itself or in the earlier "DinoFocus" folder: read them too
+                    val oldDir = rootList.firstOrNull { it.isDirectory && it.name == OLD_SYNC_DIR }
+                    val files = syncFiles(dir.listFiles()) + syncFiles(rootList) +
+                        (oldDir?.let { syncFiles(it.listFiles()) } ?: emptyList())
                     var remote: AppData? = null
                     val seen = ArrayList<Pair<String, Long>>()
                     files.forEach { f ->
