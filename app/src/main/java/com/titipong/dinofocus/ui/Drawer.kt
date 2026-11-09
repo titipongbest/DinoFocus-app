@@ -76,79 +76,27 @@ import com.titipong.dinofocus.todayKey
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** Full-screen page for the bottom navigation: today, history or sync. */
 @Composable
-fun Drawer(vm: AppViewModel, open: Boolean, onClose: () -> Unit) {
+fun SummaryPage(vm: AppViewModel, page: String, view: String, onView: (String) -> Unit) {
     val p = LocalPal.current
-    BackHandler(open) { onClose() }
-    AnimatedVisibility(open, enter = fadeIn(), exit = fadeOut()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.5f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose)
-        )
-    }
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
-        val w = min(maxWidth * 0.9f, 380.dp)
-        AnimatedVisibility(open, enter = slideInHorizontally { it }, exit = slideOutHorizontally { it }) {
-            var tab by remember { mutableStateOf("today") }
-            var view by remember { mutableStateOf(VIEW_DINO) }
-            Column(
-                Modifier
-                    .width(w)
-                    .fillMaxHeight()
-                    .background(p.bg)
-                    .border(1.dp, p.border)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, top = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("สรุปข้อมูล", fontFamily = PixelFont, fontSize = 11.sp, color = p.accentGlow, modifier = Modifier.weight(1f))
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(p.surface)
-                            .border(1.dp, p.border, RoundedCornerShape(10.dp))
-                            .clickable(onClick = onClose),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("✕", color = p.muted, fontSize = 16.sp) }
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(p.surface)
-                        .border(1.dp, p.border, RoundedCornerShape(10.dp))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf("today" to "วันนี้", "history" to "ย้อนหลัง", "sync" to "ซิงค์").forEach { (id, label) ->
-                        val active = tab == id
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(if (active) p.accent else Color.Transparent)
-                                .clickable { tab = id }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(label, color = if (active) Color.White else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
-                    }
-                }
-                Box(Modifier.weight(1f)) {
-                    when (tab) {
-                        "today" -> TodayTab(vm, view) { view = it }
-                        "history" -> HistoryTab(vm, view) { view = it }
-                        else -> SyncTab(vm)
-                    }
-                }
-                CreditLine(Modifier.padding(bottom = 10.dp))
+    val title = when (page) { "today" -> "วันนี้"; "history" -> "ย้อนหลัง"; else -> "ซิงค์" }
+    Column(
+        Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(title, color = p.fg, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(com.titipong.dinofocus.thHeaderDate(LocalDate.now()), color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        Box(Modifier.weight(1f)) {
+            when (page) {
+                "today" -> TodayTab(vm, view, onView)
+                "history" -> HistoryTab(vm, view, onView)
+                else -> SyncTab(vm)
             }
         }
+        if (page == "sync") CreditLine(Modifier.padding(bottom = 8.dp))
     }
 }
 

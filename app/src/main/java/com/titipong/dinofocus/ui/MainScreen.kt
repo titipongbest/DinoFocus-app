@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -83,40 +84,45 @@ import kotlin.math.ceil
 @Composable
 fun MainScreen(vm: AppViewModel) {
     val p = LocalPal.current
-    var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    var page by rememberSaveable { mutableStateOf(PAGE_TIMER) }
+    var view by rememberSaveable { mutableStateOf("dino") }
     var petPicker by remember { mutableStateOf(false) }
     var tagDialog by remember { mutableStateOf(false) }
+    BackHandler(page != PAGE_TIMER) { page = PAGE_TIMER }
 
     Box(Modifier.fillMaxSize().background(p.bg)) {
-        // one screen, no scrolling: the timer card takes whatever height is left and scales to it
-        Column(
-            Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Header(onMenu = { drawerOpen = true })
-            ModeTabs(vm)
-            TimerCard(vm, onPet = { petPicker = true }, onTag = { tagDialog = true }, modifier = Modifier.weight(1f))
-            CreditLine()
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth().statusBarsPadding()) {
+                if (page == PAGE_TIMER) {
+                    // one screen, no scrolling: the timer card takes whatever height is left and scales to it
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Header()
+                        ModeTabs(vm)
+                        TimerCard(vm, onPet = { petPicker = true }, onTag = { tagDialog = true }, modifier = Modifier.weight(1f))
+                        CreditLine()
+                    }
+                } else {
+                    SummaryPage(vm, page, view) { view = it }
+                }
+            }
+            BottomBar(vm, page) { page = it }
         }
-
-        Drawer(vm, open = drawerOpen, onClose = { drawerOpen = false })
 
         vm.result?.let { ResultDialog(vm, it) }
         if (vm.successOpen) SuccessDialog(vm)
         if (petPicker) PetPickerDialog(vm) { petPicker = false }
         if (tagDialog) TagDialog(vm) { tagDialog = false }
 
-        ToastHost(vm, Modifier.align(Alignment.BottomCenter))
+        ToastHost(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 76.dp))
     }
 }
 
 @Composable
-private fun Header(onMenu: () -> Unit) {
+private fun Header() {
     val p = LocalPal.current
     Row(Modifier.fillMaxWidth().widthIn(max = 480.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -124,18 +130,67 @@ private fun Header(onMenu: () -> Unit) {
             color = p.accentGlow, letterSpacing = 0.6.sp, modifier = Modifier.weight(1f),
         )
         Text(thHeaderDate(LocalDate.now()), color = p.muted, fontSize = 12.sp)
-        Spacer(Modifier.width(10.dp))
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(p.surface)
-                .border(1.dp, p.border, RoundedCornerShape(10.dp))
-                .clickable(onClick = onMenu),
-            contentAlignment = Alignment.Center,
+    }
+}
+
+private const val PAGE_TIMER = "timer"
+
+/** Bottom navigation: timer · today · history · sync. The timer tab shows the live time while a round runs. */
+@Composable
+private fun BottomBar(vm: AppViewModel, page: String, onPage: (String) -> Unit) {
+    val p = LocalPal.current
+    val running = vm.isRunning
+    val timerLabel = if (running && page != PAGE_TIMER) {
+        val el = vm.elapsedMs
+        val tgt = vm.targetMs
+        if (vm.inOvertime) "+" + fmtClock((el - tgt) / 1000) else fmtClock(ceil((tgt - el) / 1000.0).toLong())
+    } else "จับเวลา"
+    val items = listOf(
+        Triple(PAGE_TIMER, if (vm.data.mode == MODE_WORK) "⏱️" else "☕", timerLabel),
+        Triple("today", "🦖", "วันนี้"),
+        Triple("history", "📊", "ย้อนหลัง"),
+        Triple("sync", "🔄", "ซิงค์"),
+    )
+    Column(Modifier.fillMaxWidth().background(p.surface)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(p.border))
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(3) { Box(Modifier.width(16.dp).height(2.dp).clip(RoundedCornerShape(1.dp)).background(p.fg)) }
+            items.forEach { (id, icon, label) ->
+                val active = page == id
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onPage(id) }
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (active) p.accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .padding(horizontal = 18.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(icon, fontSize = 18.sp)
+                        if (id == PAGE_TIMER && running && !active) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd).offset(x = 12.dp).size(8.dp).clip(RoundedCornerShape(4.dp))
+                                    .background(if (vm.inOvertime) p.yellow else p.green)
+                            )
+                        }
+                    }
+                    Text(
+                        label,
+                        color = if (active) p.accentGlow else if (id == PAGE_TIMER && running) p.fg else p.muted,
+                        fontSize = 11.sp,
+                        fontWeight = if (active || (id == PAGE_TIMER && running)) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
