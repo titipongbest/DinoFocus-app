@@ -44,6 +44,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -143,7 +145,7 @@ fun ResultDialog(vm: AppViewModel, r: RoundResult) {
                     }
                 }
                 Text(if (r.dead) "หลุมศพจะอยู่บนพื้นหญ้าของวันนี้" else "ได้รับไดโนเสาร์", color = p.muted, fontSize = 12.sp)
-                SpriteImage(if (r.dead) "grave" else r.sp, 120.dp, Modifier.offset(y = if (r.dead) 0.dp else bounce.dp))
+                if (r.dead) FallingGrave() else SpriteImage(r.sp, 120.dp, Modifier.offset(y = bounce.dp))
                 Text(if (r.dead) "${sp.name} ตายแล้ว" else sp.name, color = p.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 if (!r.dead) RarityChip(sp.rarity)
                 FinishButtons(onFinish = { vm.recordResult(goBreak = false) }, onBreak = { vm.recordResult(goBreak = true) })
@@ -330,7 +332,7 @@ fun SuccessDialog(vm: AppViewModel) {
         Box(Modifier.padding(24.dp)) {
             DialogBox(p.yellow) {
                 DialogTitle("ไดโนเสาร์ใหม่สำเร็จ!", p.yellow)
-                SpriteImage(sp.id, 120.dp, Modifier.offset(y = bounce.dp))
+                HatchingDino(sp.id, bounce)
                 Text(sp.name, color = p.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 RarityChip(sp.rarity)
                 Column(
@@ -366,6 +368,81 @@ fun SuccessDialog(vm: AppViewModel) {
                 }
                 Text("กดเสร็จสิ้นเพื่อบันทึกไดโนเสาร์พร้อมเวลา", color = p.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
                 FinishButtons(onFinish = { vm.finishSuccess(goBreak = false) }, onBreak = { vm.finishSuccess(goBreak = true) })
+            }
+            Confetti(Modifier.matchParentSize())
+        }
+    }
+}
+
+/** The new dino pops out with an overshoot, a little shake and a pulsing glow behind it. */
+@Composable
+private fun HatchingDino(id: String, bounce: Float) {
+    val p = LocalPal.current
+    val pop = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.38f, stiffness = 180f))
+    }
+    val glow by rememberInfiniteTransition(label = "g").animateFloat(
+        0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "gl",
+    )
+    val t = pop.value
+    Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+            drawCircle(
+                androidx.compose.ui.graphics.Brush.radialGradient(
+                    listOf(p.yellow.copy(alpha = 0.45f * glow * t.coerceIn(0f, 1f)), Color.Transparent),
+                ),
+                radius = size.minDimension / 2 * (0.75f + 0.25f * glow),
+            )
+        }
+        SpriteImage(
+            id, 120.dp,
+            Modifier
+                .offset(y = (bounce * t.coerceIn(0f, 1f)).dp)
+                .graphicsLayer {
+                    scaleX = t; scaleY = t
+                    rotationZ = (1f - t.coerceIn(0f, 1f)) * 25f * kotlin.math.sin(t * 18f)
+                },
+        )
+    }
+}
+
+/** A grave drops in and settles. */
+@Composable
+private fun FallingGrave() {
+    val drop = remember { androidx.compose.animation.core.Animatable(-160f) }
+    LaunchedEffect(Unit) {
+        drop.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 260f))
+    }
+    SpriteImage("grave", 120.dp, Modifier.graphicsLayer { translationY = drop.value * density; alpha = (1f + drop.value / 160f).coerceIn(0.2f, 1f) })
+}
+
+/** One burst of pixel confetti over the dialog. */
+@Composable
+private fun Confetti(modifier: Modifier) {
+    val t = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { t.animateTo(1f, tween(2200, easing = androidx.compose.animation.core.LinearEasing)) }
+    val colors = listOf(Color(0xFFF59E0B), Color(0xFF22C55E), Color(0xFF9B5DE5), Color(0xFFEC4899), Color(0xFF3B82F6), Color(0xFFFFF176))
+    val parts = remember {
+        val r = java.util.Random(7)
+        List(46) { floatArrayOf(r.nextFloat() * 6.283f, 0.35f + r.nextFloat() * 0.65f, r.nextFloat() * 360f, r.nextInt(colors.size).toFloat()) }
+    }
+    if (t.value >= 1f) return
+    androidx.compose.foundation.Canvas(modifier) {
+        val k = t.value
+        val cx = size.width / 2
+        val cy = size.height * 0.3f
+        val u = 5.dp.toPx()
+        parts.forEach { (ang, spd, rot, ci) ->
+            val dist = spd * size.width * 0.75f * (1 - (1 - k) * (1 - k))
+            val x = cx + kotlin.math.cos(ang) * dist
+            val y = cy + kotlin.math.sin(ang) * dist * 0.8f + k * k * size.height * 0.55f
+            rotate(rot + k * 540f, androidx.compose.ui.geometry.Offset(x, y)) {
+                drawRect(
+                    colors[ci.toInt()].copy(alpha = (1f - k).coerceIn(0f, 1f)),
+                    androidx.compose.ui.geometry.Offset(x - u / 2, y - u / 2),
+                    androidx.compose.ui.geometry.Size(u, u * 0.6f),
+                )
             }
         }
     }

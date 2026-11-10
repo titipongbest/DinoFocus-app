@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -118,6 +119,7 @@ fun MainScreen(vm: AppViewModel) {
         if (tagDialog) TagDialog(vm) { tagDialog = false }
 
         ToastHost(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 76.dp))
+        FxOverlay(vm)
     }
 }
 
@@ -498,4 +500,73 @@ fun CreditLine(modifier: Modifier = Modifier) {
         color = p.muted, fontSize = 11.sp, textAlign = TextAlign.Center,
         modifier = modifier.fillMaxWidth().alpha(0.8f),
     )
+}
+
+/**
+ * Big moment animation over everything: rings ripple out from the centre while the title pops in,
+ * then it all fades (about 1.6 s). Touches pass through.
+ */
+@Composable
+private fun FxOverlay(vm: AppViewModel) {
+    val ev = vm.fx ?: return
+    val p = LocalPal.current
+    val anim = remember(ev.id) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(ev.id) {
+        anim.animateTo(1f, tween(1700, easing = LinearEasing))
+        if (vm.fx?.id == ev.id) vm.fx = null
+    }
+    val t = anim.value
+    val color = when (ev.kind) {
+        com.titipong.dinofocus.Fx.FOCUS -> p.accent
+        com.titipong.dinofocus.Fx.BREAK -> p.green
+        com.titipong.dinofocus.Fx.BREAK_DONE -> p.yellow
+    }
+    val d = vm.data
+    val title = when (ev.kind) {
+        com.titipong.dinofocus.Fx.FOCUS -> "เริ่มโฟกัส!"
+        com.titipong.dinofocus.Fx.BREAK -> "เริ่มพัก"
+        com.titipong.dinofocus.Fx.BREAK_DONE -> "พักเสร็จแล้ว!"
+    }
+    val sub = when (ev.kind) {
+        com.titipong.dinofocus.Fx.FOCUS -> "${d.workMin} นาที · ${Dinos.get(d.pet).name} กำลังฟัก"
+        com.titipong.dinofocus.Fx.BREAK -> "พักสบายๆ ${d.shortMin} นาที"
+        com.titipong.dinofocus.Fx.BREAK_DONE -> "กด Start Focus เพื่อเริ่มรอบใหม่"
+    }
+    fun seg(a: Float, b: Float) = ((t - a) / (b - a)).coerceIn(0f, 1f)
+    val easeOut = { x: Float -> 1 - (1 - x) * (1 - x) * (1 - x) }
+    val fadeOut = 1f - seg(0.72f, 1f)
+    val scrim = (seg(0f, 0.12f) * 0.55f) * fadeOut
+    val pop = when {
+        t < 0.18f -> 0.3f + 0.85f * (t / 0.18f)
+        t < 0.3f -> 1.15f - 0.15f * ((t - 0.18f) / 0.12f)
+        else -> 1f
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(p.bg.copy(alpha = scrim))
+            val maxR = size.maxDimension * 0.75f
+            listOf(0f, 0.12f, 0.24f).forEach { delayT ->
+                val k = easeOut(seg(delayT, delayT + 0.6f))
+                if (k > 0f) drawCircle(
+                    color.copy(alpha = 0.45f * (1f - k) * fadeOut),
+                    radius = maxR * k,
+                    style = Stroke(width = (18f * (1f - k) + 3f).dp.toPx()),
+                )
+            }
+            drawCircle(color.copy(alpha = 0.18f * fadeOut * seg(0f, 0.15f)), radius = 120.dp.toPx() * pop)
+        }
+        Column(
+            Modifier.graphicsLayer { scaleX = pop; scaleY = pop; alpha = seg(0f, 0.08f) * fadeOut },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            when (ev.kind) {
+                com.titipong.dinofocus.Fx.FOCUS -> SpriteImage(d.pet, 120.dp)
+                com.titipong.dinofocus.Fx.BREAK -> Text("☕", fontSize = 72.sp)
+                com.titipong.dinofocus.Fx.BREAK_DONE -> Text("💪", fontSize = 72.sp)
+            }
+            Text(title, color = color, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            Text(sub, color = p.fg, fontSize = 14.sp, textAlign = TextAlign.Center)
+        }
+    }
 }

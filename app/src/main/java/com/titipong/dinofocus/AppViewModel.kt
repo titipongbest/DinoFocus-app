@@ -29,6 +29,9 @@ import kotlin.math.floor
 
 data class ToastMsg(val text: String, val id: Long = System.nanoTime())
 
+enum class Fx { FOCUS, BREAK, BREAK_DONE }
+data class FxEvent(val kind: Fx, val id: Long = System.nanoTime())
+
 /** What the result popup shows after Stop (dead = false) or Give up (dead = true). */
 data class RoundResult(
     val dead: Boolean,
@@ -48,6 +51,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
     var toast by mutableStateOf<ToastMsg?>(null)
+    /** Full-screen animation to play (start focus / start break / break done). */
+    var fx by mutableStateOf<FxEvent?>(null)
     var giveUpArmed by mutableStateOf(false)
         private set
     var result by mutableStateOf<RoundResult?>(null)
@@ -261,7 +266,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         } else if (el >= targetMs) {
             chime()
-            showToast("พักเสร็จแล้ว! กลับมาโฟกัสกัน 💪")
+            fx = FxEvent(Fx.BREAK_DONE)
             val min = data.shortMin
             switchMode(MODE_WORK)
             Notifier.showBreakDone(getApplication(), min)
@@ -314,7 +319,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun onFocusButton() {
         val el = elapsedMs
         when {
-            el == 0L && !isRunning -> start()
+            el == 0L && !isRunning -> { start(); fx = FxEvent(Fx.FOCUS) }
             inOvertime -> {}
             el < CANCEL_MS -> { clearSession(); showToast("ยกเลิกแล้ว") }
             !giveUpArmed -> {
@@ -331,9 +336,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── break page ──────────────────────────────────────────────────────
-    fun breakStart() = start()
+    fun breakStart() { start(); fx = FxEvent(Fx.BREAK) }
     fun breakCancel() { clearSession(); showToast("ยกเลิกการพักแล้ว") }
-    fun breakToFocus() { switchMode(MODE_WORK); start() }
+    fun breakToFocus() { switchMode(MODE_WORK); start(); fx = FxEvent(Fx.FOCUS) }
 
     private fun finishWork(dead: Boolean) {
         Notifier.cancelSuccess(getApplication())
@@ -392,7 +397,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (goBreak) {
             switchMode(MODE_SHORT)
             start()
-            showToast("เริ่มพักสั้นแล้ว ☕")
+            fx = FxEvent(Fx.BREAK)
         } else {
             switchMode(MODE_WORK)
             showToast("บันทึกแล้ว · เรียนไป ${r.workSec / 60} นาที")
