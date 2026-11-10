@@ -59,6 +59,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.key
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -212,19 +214,29 @@ private fun ModeTabs(vm: AppViewModel) {
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        val current = vm.data.mode
         listOf(MODE_WORK to "🦖 ทำงาน", MODE_SHORT to "☕ พักสั้น").forEach { (mode, label) ->
-            val active = vm.data.mode == mode
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (active) p.accent else Color.Transparent)
-                    .clickable(enabled = !locked) { vm.selectModeTab(mode) }
-                    .alpha(if (locked && !active) 0.4f else 1f)
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, color = if (active) Color.White else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            val active = current == mode
+            // the highlight is painted in drawBehind from the current mode, so it can never be left
+            // stale (it was missing after jumping from the "new dino" window straight into a break)
+            key(mode, active) {
+                val bg = if (active) p.accent else Color.Transparent
+                val fg = when {
+                    active -> Color.White
+                    locked -> p.muted.copy(alpha = 0.4f)
+                    else -> p.muted
+                }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .drawBehind { drawRoundRect(bg, cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())) }
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = !locked) { vm.selectModeTab(mode) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, color = fg, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+                }
             }
         }
     }
