@@ -51,6 +51,13 @@ fun DrawScope.drawSprite(sp: Sprite, left: Float, top: Float, px: Float, flip: B
 /** Square sprite image, vertically centered like the web version's data-URL sprites. */
 @Composable
 fun SpriteImage(id: String, size: Dp, modifier: Modifier = Modifier) {
+    dinoArt(id)?.let { res ->
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(res), contentDescription = null,
+            modifier = modifier.size(size), contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+        )
+        return
+    }
     val sp = Dinos.sprite(id)
     Canvas(modifier.size(size)) {
         val px = floor(this.size.width / 18f).coerceAtLeast(1f)
@@ -260,4 +267,21 @@ fun DinoBreakdown(data: AppData, list: List<Entry>) {
 fun fmtDuration(sec: Int): String {
     val m = sec / 60
     return if (m >= 60) "${m / 60} ชม. ${m % 60} นาที" else "$m นาที"
+}
+
+/** Illustrated art for each species (the grave stays a pixel sprite). */
+fun dinoArt(id: String): Int? = when (id) {
+    "rex" -> com.titipong.dinofocus.R.drawable.dino_rex
+    "neck" -> com.titipong.dinofocus.R.drawable.dino_neck
+    "trike" -> com.titipong.dinofocus.R.drawable.dino_trike
+    "stego" -> com.titipong.dinofocus.R.drawable.dino_stego
+    "raptor" -> com.titipong.dinofocus.R.drawable.dino_raptor
+    "ankylo" -> com.titipong.dinofocus.R.drawable.dino_ankylo
+    "parasaur" -> com.titipong.dinofocus.R.drawable.dino_parasaur
+    "allo" -> com.titipong.dinofocus.R.drawable.dino_allo
+    "spino" -> com.titipong.dinofocus.R.drawable.dino_spino
+    "pachy" -> com.titipong.dinofocus.R.drawable.dino_pachy
+    "diplo" -> com.titipong.dinofocus.R.drawable.dino_diplo
+    "ptero" -> com.titipong.dinofocus.R.drawable.dino_ptero
+    else -> null
 }

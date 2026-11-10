@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
@@ -85,6 +87,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
     val density = LocalDensity.current
     val hits = remember { ArrayList<Hit>() }
     val t by produceState(0L) { while (true) withFrameMillis { value = it } }
+    val art = Dinos.SPECIES.associate { it.id to androidx.compose.ui.graphics.ImageBitmap.imageResource(dinoArt(it.id)!!) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -95,7 +98,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
             val tw = floor(min(wPx * 0.94f / side, maxTw))
             val th = tw / 2
             val depth = (tw * 0.4f).roundToInt().toFloat()
-            val head = (tw * 1.05f).roundToInt().toFloat()
+            val head = (tw * 1.3f).roundToInt().toFloat()
             val hPx = side * th + depth + head + with(density) { 6.dp.toPx() }
             val hDp = with(density) { hPx.toDp() }
 
@@ -190,8 +193,29 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                     drawOval(Color.Black.copy(alpha = 0.22f), Offset(c.x - rx, c.y - ry), Size(rx * 2, ry * 2))
                     val top = (c.y - h + s - lift).roundToInt().toFloat()
                     val left = (c.x - w / 2).roundToInt().toFloat()
-                    drawSprite(sprite, left, top, s, flip = it.k % 2 == 1 && !d.dead)
-                    hits.add(Hit(it.k, left, top, w, h))
+                    val img = if (d.dead) null else art[d.sp]
+                    if (img == null) {
+                        drawSprite(sprite, left, top, s, flip = it.k % 2 == 1 && !d.dead)
+                        hits.add(Hit(it.k, left, top, w, h))
+                    } else {
+                        // illustrated dino: fit inside about one tile wide / 1.2 tiles tall, feet on the tile
+                        val ratio = img.height.toFloat() / img.width
+                        var iw = tw * 0.95f
+                        var ih = iw * ratio
+                        if (ih > tw * 1.2f) { ih = tw * 1.2f; iw = ih / ratio }
+                        val il = (c.x - iw / 2).roundToInt()
+                        val itop = (c.y - ih * 0.94f - lift).roundToInt()
+                        val flip = it.k % 2 == 1
+                        withTransform({ if (flip) scale(-1f, 1f, pivot = Offset(c.x, c.y)) }) {
+                            drawImage(
+                                img,
+                                dstOffset = androidx.compose.ui.unit.IntOffset(il, itop),
+                                dstSize = androidx.compose.ui.unit.IntSize(iw.roundToInt(), ih.roundToInt()),
+                                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                            )
+                        }
+                        hits.add(Hit(it.k, il.toFloat(), itop.toFloat(), iw, ih))
+                    }
                 }
             }
         }
