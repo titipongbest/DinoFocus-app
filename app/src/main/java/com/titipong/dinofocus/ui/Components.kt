@@ -269,7 +269,7 @@ fun fmtDuration(sec: Int): String {
     return if (m >= 60) "${m / 60} ชม. ${m % 60} นาที" else "$m นาที"
 }
 
-/** Illustrated art for each species (the grave stays a pixel sprite). */
+/** Illustrated art for each species and the grave. */
 fun dinoArt(id: String): Int? = when (id) {
     "rex" -> com.titipong.dinofocus.R.drawable.dino_rex
     "neck" -> com.titipong.dinofocus.R.drawable.dino_neck
@@ -283,5 +283,6 @@ fun dinoArt(id: String): Int? = when (id) {
     "pachy" -> com.titipong.dinofocus.R.drawable.dino_pachy
     "diplo" -> com.titipong.dinofocus.R.drawable.dino_diplo
     "ptero" -> com.titipong.dinofocus.R.drawable.dino_ptero
+    "grave" -> com.titipong.dinofocus.R.drawable.dino_grave
     else -> null
 }

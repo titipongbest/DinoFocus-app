@@ -87,7 +87,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
     val density = LocalDensity.current
     val hits = remember { ArrayList<Hit>() }
     val t by produceState(0L) { while (true) withFrameMillis { value = it } }
-    val art = Dinos.SPECIES.associate { it.id to androidx.compose.ui.graphics.ImageBitmap.imageResource(dinoArt(it.id)!!) }
+    val art = (Dinos.SPECIES.map { it.id } + "grave").associateWith { androidx.compose.ui.graphics.ImageBitmap.imageResource(dinoArt(it)!!) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -193,7 +193,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                     drawOval(Color.Black.copy(alpha = 0.22f), Offset(c.x - rx, c.y - ry), Size(rx * 2, ry * 2))
                     val top = (c.y - h + s - lift).roundToInt().toFloat()
                     val left = (c.x - w / 2).roundToInt().toFloat()
-                    val img = if (d.dead) null else art[d.sp]
+                    val img = art[d.spriteId]
                     if (img == null) {
                         drawSprite(sprite, left, top, s, flip = it.k % 2 == 1 && !d.dead)
                         hits.add(Hit(it.k, left, top, w, h))
@@ -205,7 +205,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                         if (ih > tw * 1.2f) { ih = tw * 1.2f; iw = ih / ratio }
                         val il = (c.x - iw / 2).roundToInt()
                         val itop = (c.y - ih * 0.94f - lift).roundToInt()
-                        val flip = it.k % 2 == 1
+                        val flip = it.k % 2 == 1 && !d.dead
                         withTransform({ if (flip) scale(-1f, 1f, pivot = Offset(c.x, c.y)) }) {
                             drawImage(
                                 img,
