@@ -147,7 +147,7 @@ private fun BottomBar(vm: AppViewModel, page: String, onPage: (String) -> Unit) 
     } else "จับเวลา"
     val items = listOf(
         Triple(PAGE_TIMER, if (vm.data.mode == MODE_WORK) "⏱️" else "☕", timerLabel),
-        Triple("today", "🦖", "วันนี้"),
+        Triple("today", "🏞️", "วันนี้"),
         Triple("history", "📊", "ย้อนหลัง"),
         Triple("sync", "🔄", "ซิงค์"),
     )
