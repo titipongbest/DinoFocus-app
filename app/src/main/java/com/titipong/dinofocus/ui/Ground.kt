@@ -162,12 +162,20 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                 }
 
                 // dinos, back to front
-                val order = seededOrder(cap, 7)
-                data class It(val k: Int, val i: Int, val j: Int)
+                // random spot per dino, picked from its id: looks scattered, but a dino keeps its spot
+                // when more are added. Taken tiles move it to the next free one; a small nudge inside
+                // the tile keeps rows from looking lined up.
+                data class It(val k: Int, val i: Int, val j: Int, val dx: Float, val dy: Float)
+                val taken = BooleanArray(cap)
                 val items = (first until n).map { q ->
-                    val slot = order[q - first]
-                    It(keys[q], slot % side, slot / side)
-                }.sortedWith(compareBy<It>({ it.i + it.j }, { it.i }))
+                    val e = col[keys[q]]
+                    val h = (e.id.ifBlank { "${e.ts}" }).hashCode()
+                    var slot = Math.floorMod(h * 31 + 17, cap)
+                    while (taken[slot]) slot = (slot + 1) % cap
+                    taken[slot] = true
+                    val r = java.util.Random(h.toLong())
+                    It(keys[q], slot % side, slot / side, (r.nextFloat() - 0.5f) * 0.3f, (r.nextFloat() - 0.5f) * 0.3f)
+                }.sortedWith(compareBy<It>({ it.i + it.j + it.dx + it.dy }, { it.i }))
 
                 items.firstOrNull { it.k == sel }?.let { s ->
                     val fi = s.i.toFloat(); val fj = s.j.toFloat()
@@ -185,7 +193,7 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                     val flying = Dinos.get(d.spriteId).shape == "ptero"
                     val w = 18 * s
                     val h = sprite.h * s
-                    val c = P(it.i + 0.5f, it.j + 0.5f)
+                    val c = P(it.i + 0.5f + it.dx, it.j + 0.5f + it.dy)
                     val hop = if (d.dead) 0.0 else max(0.0, sin(t / 520.0 + it.k * 2.1)).pow(6)
                     val lift = (if (flying) tw * 0.35 + sin(t / 400.0 + it.k) * s * 2 else hop * tw * 0.14).roundToInt()
                     val rx = w * (if (flying) 0.22f else 0.32f)
