@@ -184,7 +184,7 @@ private fun BottomBar(vm: AppViewModel, page: String, onPage: (String) -> Unit) 
     val items = listOf(
         Triple(PAGE_TIMER, if (vm.data.mode == MODE_WORK) "⏱️" else "☕", timerLabel),
         Triple("today", "🏞️", "วันนี้"),
-        Triple("history", "📊", "ย้อนหลัง"),
+        Triple("history", "📊", "ประวัติ"),
         Triple("sync", "🔄", "ซิงค์"),
     )
     Column(Modifier.fillMaxWidth().background(p.surface)) {

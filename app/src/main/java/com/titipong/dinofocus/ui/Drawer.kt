@@ -93,7 +93,7 @@ import java.time.LocalDate
 @Composable
 fun SummaryPage(vm: AppViewModel, page: String, view: String, onView: (String) -> Unit) {
     val p = LocalPal.current
-    val title = when (page) { "today" -> "วันนี้"; "history" -> "ย้อนหลัง"; else -> "ซิงค์" }
+    val title = when (page) { "today" -> "วันนี้"; "history" -> "ประวัติ"; else -> "ซิงค์" }
     Column(
         Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
