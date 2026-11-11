@@ -69,7 +69,7 @@ import com.titipong.dinofocus.RoundResult
 import com.titipong.dinofocus.fmtClock
 
 @Composable
-private fun DialogBox(borderColor: Color, content: @Composable () -> Unit) {
+internal fun DialogBox(borderColor: Color, content: @Composable () -> Unit) {
     val p = LocalPal.current
     // every dialog springs in from slightly smaller
     val appear = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -95,12 +95,12 @@ private fun DialogBox(borderColor: Color, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun DialogTitle(text: String, color: Color) {
+internal fun DialogTitle(text: String, color: Color) {
     Text(text, fontFamily = PixelFont, fontSize = 12.sp, lineHeight = 20.sp, color = color, textAlign = TextAlign.Center)
 }
 
 @Composable
-private fun OutlineButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun OutlineButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalPal.current
     val src = remember { MutableInteractionSource() }
     Box(
