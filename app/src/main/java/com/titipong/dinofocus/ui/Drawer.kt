@@ -11,6 +11,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
@@ -196,7 +199,9 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     var weekOffset by remember { mutableIntStateOf(0) }
     // month calendar: the shown month and the tapped day ("yyyy-mm-dd")
     var calMonth by remember { mutableStateOf(java.time.YearMonth.now()) }
-    var calDay by remember { mutableStateOf<String?>(today) }
+    var calDay by remember { mutableStateOf<String?>(null) }
+    // history has two modes: the 7-day chart, or the month calendar
+    var histMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(HIST_WEEK) }
     var histSel by remember { mutableIntStateOf(-1) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -257,6 +262,19 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             }
         }
         item {
+            SegmentedRow(
+                labels = listOf("📊 รายสัปดาห์", "🗓️ รายเดือน"),
+                selected = if (histMode == HIST_MONTH) 1 else 0,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(p.surface2)
+                    .border(1.dp, p.border, RoundedCornerShape(999.dp))
+                    .padding(3.dp),
+                height = 34.dp,
+            ) { histMode = if (it == 1) HIST_MONTH else HIST_WEEK }
+        }
+        if (histMode == HIST_WEEK) item(key = "week-nav") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 NavBtn("‹", true) { weekOffset++ }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -267,7 +285,7 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 NavBtn("›", weekOffset > 0) { if (weekOffset > 0) weekOffset-- }
             }
         }
-        item {
+        if (histMode == HIST_WEEK) item(key = "week-chart") {
             WeekChart(
                 days, vals, today, barColor,
                 rounds = { k -> if (histTag == null) d.roundsOn(k) else indicesOn(k).size },
@@ -280,7 +298,7 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             }
         }
         // tapping / dragging on the chart shows that day's dino ground right here
-        chartSel?.let { i ->
+        if (histMode == HIST_WEEK) chartSel?.let { i ->
             item(key = "chart-ground") {
                 GroundView(d, indicesOn(days[i].toString()), chartGroundSel, { chartGroundSel = it }, "วันที่เลือกไม่ได้รับไดโนเสาร์")
             }
@@ -289,8 +307,7 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
             DinoBreakdown(d, inRange)
         }
-        item { SubTitle("รายเดือน") }
-        item {
+        if (histMode == HIST_MONTH) item(key = "month") {
             MonthCalendar(
                 month = calMonth,
                 firstMonth = firstMonth,
@@ -299,18 +316,19 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 color = barColor ?: p.accentGlow,
                 minutes = ::minutes,
                 onMonth = { calMonth = it; calDay = null },
-                onDay = { calDay = if (calDay == it) null else it },
+                onDay = { calDay = it },
             )
-        }
-        // the tapped day: totals, minutes per tag and its dino ground
-        calDay?.let { k ->
-            item(key = "cal-day") {
-                CalendarDayCard(d, k, today, histTag, ::indicesOn, ::minutes, histSel) { histSel = it }
-            }
         }
         item { Box(Modifier.height(8.dp)) }
     }
+    // a day tapped in the month calendar pops up with its totals and dino ground
+    calDay?.let { k ->
+        DayDialog(d, k, today, histTag, ::indicesOn, ::minutes, histSel, { histSel = it }) { calDay = null }
+    }
 }
+
+private const val HIST_WEEK = "week"
+private const val HIST_MONTH = "month"
 
 private val TH_MONTH_LONG = arrayOf(
     "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -464,9 +482,9 @@ private fun MonthCalendar(
     }
 }
 
-/** What happened on the day tapped in the calendar. */
+/** Pop-up for the day tapped in the calendar: totals, minutes per tag and its dino ground. */
 @Composable
-private fun CalendarDayCard(
+private fun DayDialog(
     d: AppData,
     k: String,
     today: String,
@@ -475,38 +493,36 @@ private fun CalendarDayCard(
     minutes: (String) -> Int,
     sel: Int,
     onSel: (Int) -> Unit,
+    onClose: () -> Unit,
 ) {
     val p = LocalPal.current
     val idx = indicesOn(k)
     val list = idx.map { d.collection[it] }
     val rounds = if (histTag == null) d.roundsOn(k) ?: 0 else list.size
-    androidx.compose.animation.AnimatedContent(
-        targetState = k,
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
-        label = "calday",
-    ) { key ->
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(p.surface)
-                .border(1.dp, p.accentGlow, RoundedCornerShape(12.dp))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (key == today) "วันนี้ · ${thDayMonth(keyToDate(key))}" else thLongDate(keyToDate(key)),
-                        color = p.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    )
-                    Text("$rounds รอบ" + (histTag?.let { " · $it" } ?: ""), color = p.muted, fontSize = 11.sp)
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(Modifier.padding(20.dp)) {
+            DialogBox(p.accent) {
+                DialogTitle(if (k == today) "วันนี้" else thWeekday(keyToDate(k)), p.accentGlow)
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(thDateYear(keyToDate(k)), color = p.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text("$rounds รอบ" + (histTag?.let { " · $it" } ?: ""), color = p.muted, fontSize = 12.sp)
+                        }
+                        Text("${rememberCountUp(minutes(k))}", color = p.accentGlow, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+                    }
+                    GroundView(d, idx, sel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
+                    if (histTag == null && list.any { it.workSec > 0 }) TagBreakdown(d, list, inner = true)
                 }
-                Text("${rememberCountUp(minutes(key))}", color = p.accentGlow, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                OutlineButton("ปิด", Modifier.fillMaxWidth(), onClose)
             }
-            if (histTag == null && list.any { it.workSec > 0 }) TagBreakdown(d, list, inner = true)
-            GroundView(d, idx, sel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
         }
     }
 }
