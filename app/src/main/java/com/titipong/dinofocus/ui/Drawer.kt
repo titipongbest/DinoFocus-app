@@ -302,6 +302,9 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             item(key = "chart-ground") {
                 GroundView(d, indicesOn(days[i].toString()), chartGroundSel, { chartGroundSel = it }, "วันที่เลือกไม่ได้รับไดโนเสาร์")
             }
+            // minutes per tag for the picked day, under its ground
+            val dayList = indicesOn(days[i].toString()).map { d.collection[it] }
+            if (dayList.any { it.workSec > 0 }) item(key = "chart-tags") { TagBreakdown(d, dayList) }
         }
         if (!byTag) item {
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
