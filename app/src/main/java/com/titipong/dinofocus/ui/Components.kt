@@ -1,6 +1,12 @@
 package com.titipong.dinofocus.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -136,7 +142,8 @@ fun TagBreakdown(data: AppData, list: List<Entry>, inner: Boolean = false, longF
                     )
                 }
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(if (inner) p.surface else p.surface2)) {
-                    Box(Modifier.fillMaxWidth(sec / max).height(6.dp).clip(RoundedCornerShape(3.dp)).background(c))
+                    // bars grow out from the left
+                    Box(Modifier.fillMaxWidth(rememberGrow(sec / max)).height(6.dp).clip(RoundedCornerShape(3.dp)).background(c))
                 }
             }
         }
@@ -203,12 +210,16 @@ fun TagChip(
         selected && color != null -> color
         else -> p.border
     }
+    val src = remember { MutableInteractionSource() }
+    val bgA by animateColorAsState(bg, tween(180), label = "chipbg")
+    val bcA by animateColorAsState(bc, tween(180), label = "chipbc")
     Row(
         modifier
+            .pressScale(src, 0.94f)
             .clip(shape)
-            .background(bg)
-            .border(1.dp, bc, shape)
-            .clickable(enabled = enabled, onClick = onClick)
+            .background(bgA)
+            .border(1.dp, bcA, shape)
+            .clickable(interactionSource = src, indication = LocalIndication.current, enabled = enabled, onClick = onClick)
             .padding(horizontal = if (small) 10.dp else 12.dp, vertical = if (small) 5.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

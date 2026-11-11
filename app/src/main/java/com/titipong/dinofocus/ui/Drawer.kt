@@ -4,6 +4,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -101,7 +107,7 @@ fun SummaryPage(vm: AppViewModel, page: String, view: String, onView: (String) -
 }
 
 @Composable
-private fun StatChip(value: String, label: String, modifier: Modifier) {
+private fun StatChip(value: Int, label: String, modifier: Modifier) {
     val p = LocalPal.current
     Column(
         modifier
@@ -112,7 +118,8 @@ private fun StatChip(value: String, label: String, modifier: Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(value, color = p.accentGlow, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        // the number runs up from 0 when the page opens
+        Text("${rememberCountUp(value)}", color = p.accentGlow, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Text(label, color = p.muted, fontSize = 10.sp)
     }
 }
@@ -124,27 +131,17 @@ private const val VIEW_TAG = "tag"
 @Composable
 private fun ViewSwitch(view: String, onView: (String) -> Unit) {
     val p = LocalPal.current
-    Row(
-        Modifier
+    SegmentedRow(
+        labels = listOf("🦖 ตามไดโนเสาร์", "🏷️ ตาม tag"),
+        selected = if (view == VIEW_TAG) 1 else 0,
+        modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(999.dp))
             .background(p.surface2)
             .border(1.dp, p.border, RoundedCornerShape(999.dp))
             .padding(3.dp),
-    ) {
-        listOf(VIEW_DINO to "🦖 ตามไดโนเสาร์", VIEW_TAG to "🏷️ ตาม tag").forEach { (id, label) ->
-            val on = view == id
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (on) p.accent else Color.Transparent)
-                    .clickable { onView(id) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text(label, color = if (on) Color.White else p.muted, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium) }
-        }
-    }
+        height = 34.dp,
+    ) { onView(if (it == 1) VIEW_TAG else VIEW_DINO) }
 }
 
 @Composable
@@ -156,8 +153,8 @@ private fun TodayTab(vm: AppViewModel, view: String, onView: (String) -> Unit) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatChip("${d.minutesOn(today)}", "นาทีวันนี้", Modifier.weight(1f))
-                StatChip("${d.dailyPomos[today] ?: 0}", "รอบวันนี้", Modifier.weight(1f))
+                StatChip(d.minutesOn(today), "นาทีวันนี้", Modifier.weight(1f))
+                StatChip(d.dailyPomos[today] ?: 0, "รอบวันนี้", Modifier.weight(1f))
             }
         }
         item { ViewSwitch(view, onView) }
@@ -320,12 +317,13 @@ private fun dayItems(
         val list = idx.map { d.collection[it] }.reversed()
         val open = openDay == k
         val rounds = if (histTag == null) d.roundsOn(k) else list.size
+        val edge by animateColorAsState(if (open) p.accentGlow else p.border, tween(250), label = "dayedge")
         Column(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(p.surface)
-                .border(1.dp, if (open) p.accentGlow else p.border, RoundedCornerShape(12.dp))
+                .border(1.dp, edge, RoundedCornerShape(12.dp))
         ) {
             Column(
                 Modifier
@@ -366,7 +364,8 @@ private fun dayItems(
                     }
                 }
             }
-            if (open) {
+            // the details unfold instead of popping in
+            AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // the ground is shown above the chart when a day is tapped, so not repeated here
                     if (histTag == null) TagBreakdown(d, list, inner = true)
@@ -460,7 +459,20 @@ private fun WeekChart(
                     isToday -> p.accent
                     else -> p.accentGlow
                 }
-                val fill = if (sel != null && !picked && v > 0) base.copy(alpha = 0.45f) else base
+                val fill by animateColorAsState(
+                    if (sel != null && !picked && v > 0) base.copy(alpha = 0.45f) else base, tween(180), label = "bar",
+                )
+                // bars rise from the ground one after another, then follow the data when the week or tag changes
+                val target = (v / max).coerceIn(0f, 1f)
+                val grow = remember { Animatable(0f) }
+                var first by remember { mutableStateOf(true) }
+                LaunchedEffect(target) {
+                    if (first) {
+                        first = false
+                        kotlinx.coroutines.delay(i * 45L)
+                    }
+                    grow.animateTo(target, spring(dampingRatio = 0.7f, stiffness = 240f))
+                }
                 Column(
                     Modifier
                         .weight(1f)
@@ -472,11 +484,11 @@ private fun WeekChart(
                 ) {
                     Text(if (v > 0) "$v" else "", color = if (picked) p.fg else p.muted, fontSize = 10.sp, modifier = Modifier.height(14.dp))
                     Box(Modifier.width(26.dp).height(90.dp), contentAlignment = Alignment.BottomCenter) {
-                        val frac = (v / max).coerceIn(0f, 1f)
+                        val frac = grow.value.coerceIn(0f, 1f)
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .then(if (frac <= 0f) Modifier.height(2.dp) else Modifier.fillMaxHeight(frac))
+                                .then(if (target <= 0f && frac <= 0.02f) Modifier.height(2.dp) else Modifier.fillMaxHeight(frac))
                                 .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
                                 .background(fill)
                         )
@@ -504,9 +516,9 @@ private fun SyncTab(vm: AppViewModel) {
         item { SubTitle("ข้อมูลในเครื่องนี้") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatChip("${d.minutesOn(todayKey())}", "นาทีวันนี้", Modifier.weight(1f))
-                StatChip("${d.collection.count { !it.dead }}", "ไดโนเสาร์", Modifier.weight(1f))
-                StatChip("${d.dailyWorkSec.values.sum() / 60}", "นาทีทั้งหมด", Modifier.weight(1f))
+                StatChip(d.minutesOn(todayKey()), "นาทีวันนี้", Modifier.weight(1f))
+                StatChip(d.collection.count { !it.dead }, "ไดโนเสาร์", Modifier.weight(1f))
+                StatChip(d.dailyWorkSec.values.sum() / 60, "นาทีทั้งหมด", Modifier.weight(1f))
             }
         }
         item { SubTitle("ซิงค์หลายเครื่อง") }

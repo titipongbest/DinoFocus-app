@@ -3,8 +3,10 @@ package com.titipong.dinofocus.ui
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import com.titipong.dinofocus.R
@@ -39,6 +41,9 @@ private val LightPal = Pal(
 val LocalPal = staticCompositionLocalOf { LightPal }
 val PixelFont = FontFamily(Font(R.font.press_start_2p))
 
+/** True when the phone has animations switched off (Settings > Accessibility > Remove animations). */
+val LocalReduceMotion = staticCompositionLocalOf { false }
+
 val WORK_COLOR = Color(0xFF9B5DE5)
 val SHORT_COLOR = Color(0xFF22C55E)
 
@@ -52,5 +57,11 @@ fun rarityColors(r: com.titipong.dinofocus.Rarity, p: Pal): Pair<Color, Color> =
 @Composable
 fun DinoTheme(content: @Composable () -> Unit) {
     val pal = if (isSystemInDarkTheme()) DarkPal else LightPal
-    CompositionLocalProvider(LocalPal provides pal, content = content)
+    val ctx = LocalContext.current
+    val reduce = remember {
+        runCatching {
+            android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        }.getOrDefault(false)
+    }
+    CompositionLocalProvider(LocalPal provides pal, LocalReduceMotion provides reduce, content = content)
 }

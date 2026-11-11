@@ -5,7 +5,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.titipong.dinofocus.Rarity
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,10 +71,20 @@ import com.titipong.dinofocus.fmtClock
 @Composable
 private fun DialogBox(borderColor: Color, content: @Composable () -> Unit) {
     val p = LocalPal.current
+    // every dialog springs in from slightly smaller
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.68f, stiffness = 380f))
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .widthIn(max = 420.dp)
+            .graphicsLayer {
+                val sc = 0.86f + 0.14f * appear.value
+                scaleX = sc; scaleY = sc
+                alpha = (appear.value * 1.6f).coerceIn(0f, 1f)
+            }
             .clip(RoundedCornerShape(20.dp))
             .background(p.surface)
             .border(2.dp, borderColor, RoundedCornerShape(20.dp))
@@ -88,12 +102,14 @@ private fun DialogTitle(text: String, color: Color) {
 @Composable
 private fun OutlineButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalPal.current
+    val src = remember { MutableInteractionSource() }
     Box(
         modifier
+            .pressScale(src)
             .clip(RoundedCornerShape(12.dp))
             .background(p.surface2)
             .border(1.dp, p.border, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = src, indication = LocalIndication.current, onClick = onClick)
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = p.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
@@ -123,7 +139,7 @@ fun ResultDialog(vm: AppViewModel, r: RoundResult) {
                 ) {
                     Text("เรียนไปจริง", color = p.muted, fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text("${r.workSec / 60}", color = p.fg, fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                        Text("${rememberCountUp(r.workSec / 60, 900)}", color = p.fg, fontSize = 36.sp, fontWeight = FontWeight.Bold)
                         Text(" นาที", color = p.muted, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -145,7 +161,10 @@ fun ResultDialog(vm: AppViewModel, r: RoundResult) {
                     }
                 }
                 Text(if (r.dead) "หลุมศพจะอยู่บนพื้นหญ้าของวันนี้" else "ได้รับไดโนเสาร์", color = p.muted, fontSize = 12.sp)
-                if (r.dead) FallingGrave() else SpriteImage(r.sp, 120.dp, Modifier.offset(y = bounce.dp))
+                if (r.dead) FallingGrave() else Box(contentAlignment = Alignment.Center) {
+                    SpriteImage(r.sp, 120.dp, Modifier.offset(y = bounce.dp))
+                    if (sp.rarity == Rarity.LEGENDARY) Sparkles(Modifier.matchParentSize(), count = 7)
+                }
                 Text(if (r.dead) "${sp.name} ตายแล้ว" else sp.name, color = p.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 if (!r.dead) RarityChip(sp.rarity)
                 FinishButtons(onFinish = { vm.recordResult(goBreak = false) }, onBreak = { vm.recordResult(goBreak = true) })
@@ -181,7 +200,10 @@ fun PetPickerDialog(vm: AppViewModel, onClose: () -> Unit) {
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    SpriteImage(s.id, 56.dp)
+                                    Box(contentAlignment = Alignment.Center) {
+                                        SpriteImage(s.id, 56.dp)
+                                        if (s.rarity == Rarity.LEGENDARY) Sparkles(Modifier.matchParentSize(), count = 4, seed = s.id.hashCode())
+                                    }
                                     Text(
                                         s.name, color = p.fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                                         textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -295,22 +317,27 @@ fun TagDialog(vm: AppViewModel, onClose: () -> Unit) {
 @Composable
 private fun FinishButtons(onFinish: () -> Unit, onBreak: () -> Unit) {
     val p = LocalPal.current
+    val indication = LocalIndication.current
+    val srcA = remember { MutableInteractionSource() }
+    val srcB = remember { MutableInteractionSource() }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(
             Modifier
                 .weight(1f)
+                .pressScale(srcA)
                 .clip(RoundedCornerShape(12.dp))
                 .background(p.accent)
-                .clickable(onClick = onFinish)
+                .clickable(interactionSource = srcA, indication = indication, onClick = onFinish)
                 .padding(vertical = 14.dp),
             contentAlignment = Alignment.Center,
         ) { Text("เสร็จสิ้น", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
         Box(
             Modifier
                 .weight(1f)
+                .pressScale(srcB)
                 .clip(RoundedCornerShape(12.dp))
                 .background(p.green)
-                .clickable(onClick = onBreak)
+                .clickable(interactionSource = srcB, indication = indication, onClick = onBreak)
                 .padding(vertical = 14.dp),
             contentAlignment = Alignment.Center,
         ) { Text("☕ Take a break", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
@@ -386,6 +413,9 @@ private fun HatchingDino(id: String, bounce: Float) {
         0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "gl",
     )
     val t = pop.value
+    // the two halves of the egg shell fly apart as the dino pops out
+    val shell = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { shell.animateTo(1f, tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
     Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
         androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
             drawCircle(
@@ -394,6 +424,27 @@ private fun HatchingDino(id: String, bounce: Float) {
                 ),
                 radius = size.minDimension / 2 * (0.75f + 0.25f * glow),
             )
+            val k = shell.value
+            if (k < 1f) {
+                val a = (1f - k * k).coerceIn(0f, 1f)
+                val w = size.width * 0.36f
+                val cx = size.width / 2
+                val cy = size.height * 0.55f
+                val cream = Color(0xFFF3E6C4).copy(alpha = a)
+                val edge = Color(0xFF8A6B3D).copy(alpha = a * 0.6f)
+                // top half: up and to the left, tumbling
+                val topC = androidx.compose.ui.geometry.Offset(cx - k * size.width * 0.34f, cy - k * size.height * 0.36f)
+                rotate(-70f * k, topC) {
+                    drawArc(cream, 180f, 180f, true, androidx.compose.ui.geometry.Offset(topC.x - w / 2, topC.y - w * 0.62f), androidx.compose.ui.geometry.Size(w, w * 1.24f))
+                    drawArc(edge, 180f, 180f, false, androidx.compose.ui.geometry.Offset(topC.x - w / 2, topC.y - w * 0.62f), androidx.compose.ui.geometry.Size(w, w * 1.24f), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+                }
+                // bottom half: drops down to the right
+                val botC = androidx.compose.ui.geometry.Offset(cx + k * size.width * 0.30f, cy + k * k * size.height * 0.30f)
+                rotate(55f * k, botC) {
+                    drawArc(cream, 0f, 180f, true, androidx.compose.ui.geometry.Offset(botC.x - w / 2, botC.y - w * 0.5f), androidx.compose.ui.geometry.Size(w, w))
+                    drawArc(edge, 0f, 180f, false, androidx.compose.ui.geometry.Offset(botC.x - w / 2, botC.y - w * 0.5f), androidx.compose.ui.geometry.Size(w, w), style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+                }
+            }
         }
         SpriteImage(
             id, 120.dp,
@@ -404,6 +455,7 @@ private fun HatchingDino(id: String, bounce: Float) {
                     rotationZ = (1f - t.coerceIn(0f, 1f)) * 25f * kotlin.math.sin(t * 18f)
                 },
         )
+        if (Dinos.get(id).rarity == Rarity.LEGENDARY) Sparkles(Modifier.matchParentSize(), count = 7)
     }
 }
 

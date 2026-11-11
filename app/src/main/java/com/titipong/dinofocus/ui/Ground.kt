@@ -46,7 +46,9 @@ import com.titipong.dinofocus.hhmm
 import com.titipong.dinofocus.thDayMonth
 import com.titipong.dinofocus.thWeekday
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -56,6 +58,30 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 private class Hit(val k: Int, val x: Float, val y: Float, val w: Float, val h: Float)
+
+/** New dinos that already had their drop-in on a ground, so it plays once (until the app restarts). */
+private val droppedIn = HashSet<String>()
+private const val DROP_FRESH_MS = 10 * 60_000L
+
+/** 0..1 with a small overshoot at the end. */
+private fun easeOutBack(x: Float): Float {
+    val c1 = 1.70158f
+    val c3 = c1 + 1f
+    val y = x - 1f
+    return 1f + c3 * y * y * y + c1 * y * y
+}
+
+/** 0..1 that lands, bounces twice and settles. */
+private fun bounceOut(x: Float): Float {
+    val n1 = 7.5625f
+    val d1 = 2.75f
+    return when {
+        x < 1f / d1 -> n1 * x * x
+        x < 2f / d1 -> { val y = x - 1.5f / d1; n1 * y * y + 0.75f }
+        x < 2.5f / d1 -> { val y = x - 2.25f / d1; n1 * y * y + 0.9375f }
+        else -> { val y = x - 2.625f / d1; n1 * y * y + 0.984375f }
+    }
+}
 
 private fun seededOrder(n: Int, seed: Int): IntArray {
     val a = IntArray(n) { it }
@@ -86,7 +112,19 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
     val p = LocalPal.current
     val density = LocalDensity.current
     val hits = remember { ArrayList<Hit>() }
-    val t by produceState(0L) { while (true) withFrameMillis { value = it } }
+    val reduce = LocalReduceMotion.current
+    // frame clock: only ticks while this ground is on screen and the app is in front
+    val t by produceState(0L, reduce) { if (!reduce) while (true) withFrameMillis { value = it } }
+    // [0] = frame time when these dinos first appeared (entrance), [1] = selected dino, [2] = when it was tapped
+    val marks = remember(keys) { longArrayOf(-1L, -1L, 0L) }
+    // a dino earned in the last few minutes falls from the sky the first time its ground is opened
+    val dropKey = remember(keys) {
+        val nowMs = System.currentTimeMillis()
+        keys.lastOrNull { q ->
+            val e = data.collection.getOrNull(q) ?: return@lastOrNull false
+            nowMs - e.ts in 0..DROP_FRESH_MS && droppedIn.add(e.id.ifBlank { "${e.ts}" })
+        } ?: -1
+    }
     val art = (Dinos.SPECIES.map { it.id } + "grave").associateWith { androidx.compose.ui.graphics.ImageBitmap.imageResource(dinoArt(it)!!) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -121,6 +159,26 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                 fun P(i: Float, j: Float) = Offset(ox + (i - j) * tw / 2, oy + (i + j) * th / 2)
                 fun down(o: Offset, d: Float) = Offset(o.x, o.y + d)
 
+                // entrance clock for this set of dinos
+                // (t stays 0 until the first frame arrives)
+                if (marks[0] < 0L && t > 0L) marks[0] = t
+                val since = if (reduce) 100_000f else if (marks[0] < 0L) 0f else (t - marks[0]).toFloat()
+
+                // clouds drifting behind the block
+                if (!reduce) {
+                    val cu = max(2f, (tw / 12).roundToInt().toFloat())
+                    val cloud = if (p.dark) Color.White.copy(alpha = 0.10f) else Color(0xFFB9A8F5).copy(alpha = 0.30f)
+                    for (ci in 0 until 2) {
+                        val cw = cu * 11
+                        val span = size.width + cw
+                        val x = ((t / (70.0 + ci * 35) + ci * span * 0.55) % span).toFloat() - cw
+                        val y = head * (0.10f + ci * 0.34f)
+                        drawRect(cloud, Offset(x + cu * 2, y), Size(cu * 5, cu))
+                        drawRect(cloud, Offset(x, y + cu), Size(cu * 11, cu * 2))
+                        drawRect(cloud, Offset(x + cu, y + cu * 3), Size(cu * 8, cu))
+                    }
+                }
+
                 // soil block
                 val L = P(0f, side.toFloat()); val B = P(side.toFloat(), side.toFloat()); val R = P(side.toFloat(), 0f)
                 poly(listOf(L, B, down(B, depth), down(L, depth)), Color(0xFF8D6E63))
@@ -151,9 +209,14 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                     if ((i * 7 + j * 13) % 5 == 0) {
                         val c = P(fi + 0.3f, fj + 0.7f)
                         val g = Color(0xFF558B2F)
-                        drawRect(g, Offset(c.x, c.y - 2 * u), Size(u, 2 * u))
-                        drawRect(g, Offset(c.x + 2 * u, c.y - 3 * u), Size(u, 3 * u))
-                        drawRect(g, Offset(c.x + 4 * u, c.y - 2 * u), Size(u, 2 * u))
+                        // the tips lean one pixel with the wind
+                        val sway = (sin(t / 700.0 + i * 1.3 + j * 0.7) * 1.2).roundToInt().coerceIn(-1, 1) * u
+                        drawRect(g, Offset(c.x, c.y - u), Size(u, u))
+                        drawRect(g, Offset(c.x + sway, c.y - 2 * u), Size(u, u))
+                        drawRect(g, Offset(c.x + 2 * u, c.y - u), Size(u, u))
+                        drawRect(g, Offset(c.x + 2 * u + sway, c.y - 3 * u), Size(u, 2 * u))
+                        drawRect(g, Offset(c.x + 4 * u, c.y - u), Size(u, u))
+                        drawRect(g, Offset(c.x + 4 * u + sway, c.y - 2 * u), Size(u, u))
                     }
                     if ((i * 11 + j * 5) % 9 == 4) {
                         val c = P(fi + 0.7f, fj + 0.35f)
@@ -187,18 +250,48 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
 
                 hits.clear()
                 val s = max(1f, floor(tw * 0.9f / 18))
-                for (it in items) {
+                // a tapped dino jumps once
+                if (marks[1] != sel.toLong()) { marks[1] = sel.toLong(); marks[2] = t }
+                for ((order, it) in items.withIndex()) {
                     val d = col.getOrNull(it.k) ?: continue
+                    // entrance: one after another they pop up from their tile; the newest one drops from the sky
+                    val dropping = it.k == dropKey && !reduce
+                    val appear = ((since - min(order * 35f, 500f)) / 320f).coerceIn(0f, 1f)
+                    val dropK = if (dropping) ((since - 250f) / 800f).coerceIn(0f, 1f) else 1f
+                    val grow = if (dropping) 1f else easeOutBack(appear)
+                    val fade = if (dropping) (dropK * 5f).coerceIn(0f, 1f) else (appear * 2f).coerceIn(0f, 1f)
+                    if (fade <= 0f) continue
+                    val fall = (1f - bounceOut(dropK)) * tw * 2.6f
+                    val jumpK = if (it.k == sel && !reduce) ((t - marks[2]) / 420f).coerceIn(0f, 1f) else 1f
+                    val jump = if (jumpK < 1f) sin(jumpK * PI).toFloat() * tw * 0.32f else 0f
                     val sprite = Dinos.sprite(d.spriteId)
                     val flying = Dinos.get(d.spriteId).shape == "ptero"
                     val w = 18 * s
                     val h = sprite.h * s
                     val c = P(it.i + 0.5f + it.dx, it.j + 0.5f + it.dy)
                     val hop = if (d.dead) 0.0 else max(0.0, sin(t / 520.0 + it.k * 2.1)).pow(6)
-                    val lift = (if (flying) tw * 0.35 + sin(t / 400.0 + it.k) * s * 2 else hop * tw * 0.14).roundToInt()
-                    val rx = w * (if (flying) 0.22f else 0.32f)
-                    val ry = th * 0.2f
-                    drawOval(Color.Black.copy(alpha = 0.22f), Offset(c.x - rx, c.y - ry), Size(rx * 2, ry * 2))
+                    val lift = (if (flying) tw * 0.35 + sin(t / 400.0 + it.k) * s * 2 else hop * tw * 0.14).roundToInt() +
+                        (fall + jump).roundToInt()
+                    // the shadow shrinks while the dino is in the air
+                    val air = (1f - (fall + jump) / (tw * 2.6f)).coerceIn(0.35f, 1f)
+                    val rx = w * (if (flying) 0.22f else 0.32f) * air * grow.coerceIn(0f, 1f)
+                    val ry = th * 0.2f * air * grow.coerceIn(0f, 1f)
+                    drawOval(Color.Black.copy(alpha = 0.22f * fade), Offset(c.x - rx, c.y - ry), Size(rx * 2, ry * 2))
+                    // dust puffs where the falling dino lands (first touch is at 1/2.75 of the bounce)
+                    if (dropping) {
+                        val landed = since - 250f - 800f / 2.75f
+                        if (landed > 0f && landed < 500f) {
+                            val dk = landed / 500f
+                            val dust = (if (p.dark) Color(0xFFD7CCC8) else Color(0xFFFFFFFF)).copy(alpha = 0.7f * (1f - dk))
+                            val du = max(2f, tw / 16)
+                            for (sd in -1..1 step 2) for (q in 0 until 3) {
+                                val dx = sd * (tw * 0.18f + dk * tw * (0.22f + q * 0.12f))
+                                val dy = -dk * tw * (0.06f + q * 0.05f)
+                                val ds = du * (1f + dk * (1.2f - q * 0.25f))
+                                drawRect(dust, Offset(c.x + dx - ds / 2, c.y + dy - ds / 2), Size(ds, ds))
+                            }
+                        }
+                    }
                     val top = (c.y - h + s - lift).roundToInt().toFloat()
                     val left = (c.x - w / 2).roundToInt().toFloat()
                     val img = art[d.spriteId]
@@ -214,15 +307,36 @@ fun GroundView(data: AppData, keys: List<Int>, sel: Int, onSel: (Int) -> Unit, e
                         val il = (c.x - iw / 2).roundToInt()
                         val itop = (c.y - ih * 0.94f - lift).roundToInt()
                         val flip = it.k % 2 == 1 && !d.dead
-                        withTransform({ if (flip) scale(-1f, 1f, pivot = Offset(c.x, c.y)) }) {
+                        withTransform({
+                            if (flip) scale(-1f, 1f, pivot = Offset(c.x, c.y))
+                            if (grow != 1f) scale(grow, grow, pivot = Offset(c.x, c.y))
+                        }) {
                             drawImage(
                                 img,
                                 dstOffset = androidx.compose.ui.unit.IntOffset(il, itop),
                                 dstSize = androidx.compose.ui.unit.IntSize(iw.roundToInt(), ih.roundToInt()),
+                                alpha = fade,
                                 filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                             )
                         }
                         hits.add(Hit(it.k, il.toFloat(), itop.toFloat(), iw, ih))
+                    }
+                }
+
+                // two butterflies wander over the grass
+                if (!reduce) {
+                    val bu = max(2f, (tw / 14).roundToInt().toFloat())
+                    val wings = listOf(Color(0xFFF48FB1), Color(0xFFFFF176))
+                    for (b in 0 until 2) {
+                        val a = t / (2300.0 + b * 700) + b * 2.4
+                        val bx = ox + (sin(a) * side * tw * 0.30).toFloat()
+                        val by = oy + side * th * 0.5f + (cos(a * 1.7 + b) * side * th * 0.22).toFloat() - tw * 0.55f +
+                            (sin(t / 260.0 + b) * bu).toFloat()
+                        val flap = abs(sin(t / 95.0 + b * 1.3)).toFloat()
+                        val ww = bu * (0.6f + 1.6f * flap)
+                        drawRect(wings[b], Offset(bx - ww, by - bu), Size(ww, bu * 2))
+                        drawRect(wings[b], Offset(bx + bu * 0.5f, by - bu), Size(ww, bu * 2))
+                        drawRect(Color(0xFF4E342E), Offset(bx, by - bu * 0.5f), Size(bu * 0.5f, bu * 1.5f))
                     }
                 }
             }
