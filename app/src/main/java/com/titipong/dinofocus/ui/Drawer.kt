@@ -22,6 +22,7 @@ import com.titipong.dinofocus.thMonth
 import com.titipong.dinofocus.thDateYear
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -370,7 +371,7 @@ private fun MonthCalendar(
                     (slideOutHorizontally(tween(220)) { -dir * it / 3 } + fadeOut(tween(160)))
             },
             modifier = Modifier.pointerInput(month, canBack, canNext) {
-                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = { drag = 0f },
                     onHorizontalDrag = { c, dx -> drag += dx; c.consume() },
                     onDragEnd = {
