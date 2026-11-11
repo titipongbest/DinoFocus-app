@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
@@ -342,10 +344,15 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit, mo
 
         if (over) Text(if (vm.atCap) "ครบ 90 นาทีแล้ว · กดเสร็จสิ้นเพื่อบันทึก" else "ไดโนเสาร์ใหม่สำเร็จ · นับเวลาต่อได้ถึง 90 นาที", color = p.yellow, fontSize = 12.sp, textAlign = TextAlign.Center)
 
-        // duration slider (locked once started)
+        // duration slider: folds away once a focus round or a break has started, comes back when it ends
         val range = SliderCfg.range(d.mode)
         val minutes = d.minutesFor(d.mode)
-        Column(Modifier.fillMaxWidth().alpha(if (started) 0.45f else 1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        AnimatedVisibility(
+            visible = !started,
+            enter = expandVertically(tween(300)) + fadeIn(tween(250, delayMillis = 80)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(300)),
+        ) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("ระยะเวลา: ", color = p.muted, fontSize = 12.sp)
                 Text("$minutes", color = p.accentGlow, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -370,6 +377,7 @@ private fun TimerCard(vm: AppViewModel, onPet: () -> Unit, onTag: () -> Unit, mo
                 Text("${range.first} นาที", color = p.muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 Text("${range.last} นาที", color = p.muted, fontSize = 10.sp)
             }
+        }
         }
 
         if (work) {
