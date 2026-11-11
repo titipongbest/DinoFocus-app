@@ -9,6 +9,9 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +22,7 @@ import com.titipong.dinofocus.thMonth
 import com.titipong.dinofocus.thDateYear
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -190,7 +194,9 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
     // the tag filter only applies while looking "by tag"
     val histTag = if (byTag) tagFilter else null
     var weekOffset by remember { mutableIntStateOf(0) }
-    var openDay by remember { mutableStateOf<String?>(null) }
+    // month calendar: the shown month and the tapped day ("yyyy-mm-dd")
+    var calMonth by remember { mutableStateOf(java.time.YearMonth.now()) }
+    var calDay by remember { mutableStateOf<String?>(today) }
     var histSel by remember { mutableIntStateOf(-1) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -210,8 +216,9 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
 
     val dayKeys = (d.dailyPomos.keys + d.dailyWorkSec.keys + d.collection.map { it.day }).toSortedSet().reversed()
         .filter { histTag == null || indicesOn(it).isNotEmpty() }
-    if (openDay != null && openDay !in dayKeys) openDay = null
-    LaunchedEffect(openDay) { histSel = -1 }
+    LaunchedEffect(calDay) { histSel = -1 }
+    // the calendar can go back to the month of the first round, never past this month
+    val firstMonth = dayKeys.lastOrNull()?.let { java.time.YearMonth.from(keyToDate(it)) } ?: java.time.YearMonth.now()
 
     val days = (6 downTo 0).map { LocalDate.now().minusDays((it + weekOffset * 7).toLong()) }
     val vals = days.map { minutes(it.toString()) }
@@ -268,11 +275,8 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
                 onSel = { chartSel = it },
                 canOpen = { k -> k in dayKeys },
             ) { k ->
-                val idx = dayKeys.indexOf(k)
-                if (idx >= 0) {
-                    openDay = k
-                    scope.launch { listState.animateScrollToItem(dayListOffset + (if (chartSel != null) 1 else 0) + idx) }
-                }
+                calMonth = java.time.YearMonth.from(keyToDate(k))
+                calDay = k
             }
         }
         // tapping / dragging on the chart shows that day's dino ground right here
@@ -285,93 +289,224 @@ private fun HistoryTab(vm: AppViewModel, view: String, onView: (String) -> Unit)
             val inRange = days.flatMap { day -> indicesOn(day.toString()).map { d.collection[it] } }
             DinoBreakdown(d, inRange)
         }
-        item { SubTitle("รายวัน") }
-        if (dayKeys.isEmpty()) {
-            item { MutedBox(if (histTag == null) "ยังไม่มีข้อมูลย้อนหลัง" else "ยังไม่มีรอบที่บันทึกกับ \"$histTag\"") }
-        } else {
-            dayItems(this, d, dayKeys, today, openDay, byTag, histTag, histSel, ::indicesOn, ::minutes,
-                onToggle = { k -> openDay = if (openDay == k) null else k },
-                onSel = { histSel = it })
+        item { SubTitle("รายเดือน") }
+        item {
+            MonthCalendar(
+                month = calMonth,
+                firstMonth = firstMonth,
+                today = today,
+                selected = calDay,
+                color = barColor ?: p.accentGlow,
+                minutes = ::minutes,
+                onMonth = { calMonth = it; calDay = null },
+                onDay = { calDay = if (calDay == it) null else it },
+            )
+        }
+        // the tapped day: totals, minutes per tag and its dino ground
+        calDay?.let { k ->
+            item(key = "cal-day") {
+                CalendarDayCard(d, k, today, histTag, ::indicesOn, ::minutes, histSel) { histSel = it }
+            }
         }
         item { Box(Modifier.height(8.dp)) }
     }
 }
 
-private fun dayItems(
-    scope: LazyListScope,
-    d: AppData,
-    dayKeys: List<String>,
+private val TH_MONTH_LONG = arrayOf(
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+)
+private val TH_WEEK_SHORT = listOf("อา", "จ", "อ", "พ", "พฤ", "ศ", "ส")
+
+/**
+ * One month as a grid (Sunday first). Each day is tinted by how many minutes were studied,
+ * today is outlined, and tapping a day opens it below. ‹ › or a sideways swipe change the month.
+ */
+@Composable
+private fun MonthCalendar(
+    month: java.time.YearMonth,
+    firstMonth: java.time.YearMonth,
     today: String,
-    openDay: String?,
-    byTag: Boolean,
+    selected: String?,
+    color: Color,
+    minutes: (String) -> Int,
+    onMonth: (java.time.YearMonth) -> Unit,
+    onDay: (String) -> Unit,
+) {
+    val p = LocalPal.current
+    val thisMonth = java.time.YearMonth.now()
+    val canBack = month > firstMonth
+    val canNext = month < thisMonth
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(p.surface)
+            .border(1.dp, p.border, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val total = (1..month.lengthOfMonth()).sumOf { minutes(month.atDay(it).toString()) }
+        val active = (1..month.lengthOfMonth()).count { minutes(month.atDay(it).toString()) > 0 }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            NavBtn("‹", canBack) { if (canBack) onMonth(month.minusMonths(1)) }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("${TH_MONTH_LONG[month.monthValue - 1]} ${month.year + 543}", color = p.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("รวม ${rememberCountUp(total)} นาที · เรียน $active วัน", color = p.muted, fontSize = 11.sp)
+            }
+            NavBtn("›", canNext) { if (canNext) onMonth(month.plusMonths(1)) }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            TH_WEEK_SHORT.forEach {
+                Text(it, color = p.muted, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
+            }
+        }
+        // swipe left / right to change month; the grid slides the same way
+        var drag by remember { mutableStateOf(0f) }
+        androidx.compose.animation.AnimatedContent(
+            targetState = month,
+            transitionSpec = {
+                val dir = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(tween(260)) { dir * it / 3 } + fadeIn(tween(220))) togetherWith
+                    (slideOutHorizontally(tween(220)) { -dir * it / 3 } + fadeOut(tween(160)))
+            },
+            modifier = Modifier.pointerInput(month, canBack, canNext) {
+                detectHorizontalDragGestures(
+                    onDragStart = { drag = 0f },
+                    onHorizontalDrag = { c, dx -> drag += dx; c.consume() },
+                    onDragEnd = {
+                        val limit = 60.dp.toPx()
+                        if (drag > limit && canBack) onMonth(month.minusMonths(1))
+                        else if (drag < -limit && canNext) onMonth(month.plusMonths(1))
+                    },
+                )
+            },
+            label = "month",
+        ) { m ->
+            val first = m.atDay(1)
+            val lead = first.dayOfWeek.value % 7            // Sunday = 0
+            val len = m.lengthOfMonth()
+            val weeks = (lead + len + 6) / 7
+            val vals = (1..len).map { minutes(m.atDay(it).toString()) }
+            val max = maxOf(30, vals.maxOrNull() ?: 0).toFloat()
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (w in 0 until weeks) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (c in 0 until 7) {
+                            val dayN = w * 7 + c - lead + 1
+                            if (dayN < 1 || dayN > len) {
+                                Box(Modifier.weight(1f).aspectRatio(1f))
+                                continue
+                            }
+                            val date = m.atDay(dayN)
+                            val k = date.toString()
+                            val v = vals[dayN - 1]
+                            val future = k > today
+                            val picked = k == selected
+                            val level = if (v > 0) 0.25f + 0.75f * (v / max).coerceIn(0f, 1f) else 0f
+                            // cells pop in one after another when the month appears
+                            val pop = remember(m) { Animatable(0f) }
+                            LaunchedEffect(m) {
+                                kotlinx.coroutines.delay((w * 7 + c) * 12L)
+                                pop.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 500f))
+                            }
+                            val sel by androidx.compose.animation.core.animateFloatAsState(
+                                if (picked) 1f else 0f, spring(dampingRatio = 0.5f, stiffness = 600f), label = "calsel",
+                            )
+                            val bg = if (v > 0) color.copy(alpha = level) else p.surface2
+                            val fg = when {
+                                future -> p.muted.copy(alpha = 0.4f)
+                                level > 0.55f -> Color.White
+                                else -> p.fg
+                            }
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .graphicsLayer {
+                                        val sc = (0.6f + 0.4f * pop.value) * (1f + 0.08f * sel)
+                                        scaleX = sc; scaleY = sc
+                                        alpha = pop.value.coerceIn(0f, 1f)
+                                    }
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(bg)
+                                    .then(
+                                        when {
+                                            picked -> Modifier.border(2.dp, p.fg, RoundedCornerShape(8.dp))
+                                            k == today -> Modifier.border(1.5.dp, p.accentGlow, RoundedCornerShape(8.dp))
+                                            else -> Modifier
+                                        }
+                                    )
+                                    .clickable(enabled = !future) { onDay(k) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$dayN", color = fg, fontSize = 12.sp, fontWeight = if (k == today || picked) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+                                    if (v > 0) Text("$v", color = fg.copy(alpha = 0.85f), fontSize = 8.sp, maxLines = 1, lineHeight = 9.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // legend: less → more
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            Text("น้อย ", color = p.muted, fontSize = 10.sp)
+            listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { a ->
+                Box(
+                    Modifier.padding(horizontal = 1.dp).size(10.dp).clip(RoundedCornerShape(3.dp))
+                        .background(if (a == 0f) p.surface2 else color.copy(alpha = a))
+                )
+            }
+            Text(" มาก", color = p.muted, fontSize = 10.sp)
+        }
+    }
+}
+
+/** What happened on the day tapped in the calendar. */
+@Composable
+private fun CalendarDayCard(
+    d: AppData,
+    k: String,
+    today: String,
     histTag: String?,
-    histSel: Int,
     indicesOn: (String) -> List<Int>,
     minutes: (String) -> Int,
-    onToggle: (String) -> Unit,
+    sel: Int,
     onSel: (Int) -> Unit,
 ) {
-    scope.itemsIndexed(dayKeys, key = { _, k -> k }) { _, k ->
-        val p = LocalPal.current
-        val idx = indicesOn(k)
-        val list = idx.map { d.collection[it] }.reversed()
-        val open = openDay == k
-        val rounds = if (histTag == null) d.roundsOn(k) else list.size
-        val edge by animateColorAsState(if (open) p.accentGlow else p.border, tween(250), label = "dayedge")
+    val p = LocalPal.current
+    val idx = indicesOn(k)
+    val list = idx.map { d.collection[it] }
+    val rounds = if (histTag == null) d.roundsOn(k) ?: 0 else list.size
+    androidx.compose.animation.AnimatedContent(
+        targetState = k,
+        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+        label = "calday",
+    ) { key ->
         Column(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(p.surface)
-                .border(1.dp, edge, RoundedCornerShape(12.dp))
+                .border(1.dp, p.accentGlow, RoundedCornerShape(12.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggle(k) }
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (k == today) "วันนี้ · ${thDayMonth(keyToDate(k))}" else thDateYear(keyToDate(k)),
-                            color = p.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                        )
-                        Text("$rounds รอบ", color = p.muted, fontSize = 11.sp)
-                    }
-                    // the day's total, big
-                    Text("${minutes(k)}", color = p.accentGlow, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (key == today) "วันนี้ · ${thDayMonth(keyToDate(key))}" else thLongDate(keyToDate(key)),
+                        color = p.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                    Text("$rounds รอบ" + (histTag?.let { " · $it" } ?: ""), color = p.muted, fontSize = 11.sp)
                 }
-                if (byTag) {
-                    // tag colors with minutes, biggest first
-                    val sums = list.filter { it.workSec > 0 }.groupBy { it.tag ?: NO_TAG }
-                        .mapValues { e -> e.value.sumOf { it.workSec } / 60 }.entries.sortedByDescending { it.value }
-                    Row(Modifier.fillMaxWidth().clipToBounds(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (sums.isEmpty()) Text("—", color = p.muted)
-                        sums.take(4).forEach { (name, min) ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Dot(Color(d.tagColor(name)), 7.dp)
-                                Text(" $name $min", color = p.muted, fontSize = 11.sp, maxLines = 1)
-                            }
-                        }
-                    }
-                } else {
-                    Row(Modifier.fillMaxWidth().clipToBounds()) {
-                        if (list.isEmpty()) Text("—", color = p.muted)
-                        list.take(14).forEach { SpriteImage(it.spriteId, 24.dp) }
-                    }
-                }
+                Text("${rememberCountUp(minutes(key))}", color = p.accentGlow, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(" นาที", color = p.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
             }
-            // the details unfold instead of popping in
-            AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // the ground is shown above the chart when a day is tapped, so not repeated here
-                    if (histTag == null) TagBreakdown(d, list, inner = true)
-                    if (!byTag) list.forEach { SessionRow(d, it, inner = true) }
-                }
-            }
+            if (histTag == null && list.any { it.workSec > 0 }) TagBreakdown(d, list, inner = true)
+            GroundView(d, idx, sel, onSel, "วันนี้ไม่ได้รับไดโนเสาร์")
         }
     }
 }
